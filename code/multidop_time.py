@@ -360,11 +360,11 @@ def do_multidop_for_time(frame_time):
               # If this file is being used, coverage values must be provided for all
               # combinations of radars.
               'cvg_opt_bg': [1, 1, 1],
-              'cvg_sub_bg': [1, 0, 0],
-              'cvg_opt_fil': [1, 1, 1],
-              'cvg_sub_fil': [1, 0, 0],
-              'cvg_bg': [1, 1, 1],
-              'cvg_fil': [1, 0, 0],
+              'cvg_sub_bg': [0, 0, 0],
+              'cvg_opt_fil': [0, 1, 1],
+              'cvg_sub_fil': [0, 0, 0],
+              'cvg_bg': [0, 0, 0],
+              'cvg_fil': [0, 0, 0],
               'sseq_trip': [1.0, 1.0, 0.0]
             }
         dda_file_name = (time_procedures.out_data_path + '/dda_files/cpol_test' 
@@ -380,7 +380,8 @@ def do_multidop_for_time(frame_time):
         # Unfortunately, text output from the analysis engine (DDA) will not display
         # until after the program completes. Expect this step to take several minutes.
         bt = time.time()
-        multidop.execute.do_analysis(dda_file_name, cmd_path='/home/rjackson/multidop/src/DDA')
+        #multidop.execute.do_analysis(dda_file_name, cmd_path='/home/rjackson/multidop/src/DDA')
+        multidop.execute.run_command('./DDA ' + dda_file_name)
         print((time.time()-bt)/60.0, 'minutes to process')
 
         # Baseline output is not CF or Py-ART compliant. This function fixes that.

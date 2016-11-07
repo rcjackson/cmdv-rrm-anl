@@ -31,25 +31,25 @@ times = time_procedures.get_radar_times_cpol(start_year, start_month,
 
 
 # Get iPython cluster
-#state = 0
-#while state == 0:
-#    try:
-#        My_Cluster = Client()
-#        My_View = My_Cluster[:]
-#        state = 1
-#    except:
-#        state = 0
-#        print('Cluster not ready for me')
-#        sleep(10)
+state = 0
+while state == 0:
+    try:
+        My_Cluster = Client()
+        My_View = My_Cluster[:]
+        state = 1
+    except:
+        state = 0
+        print('Cluster not ready for me')
+        sleep(10)
 
 #Turn off blocking so all engines can work async
-#My_View.block = False
+My_View.block = False
 
 #on all engines do an import of Py-ART
-#My_View.execute('import matplotlib')
-#My_View.execute('matplotlib.use("agg")')
-#My_View.execute('import pyart')
-#My_View.execute('import numpy as np')
+My_View.execute('import matplotlib')
+My_View.execute('matplotlib.use("agg")')
+My_View.execute('import pyart')
+My_View.execute('import numpy as np')
 t1 = time.time()
 
 
@@ -57,7 +57,7 @@ t1 = time.time()
 #   do_multidop_for_time(timer)
 
 #Map the code and input to all workers
-#result = My_View.map_async(do_multidop_for_time, times)
+result = My_View.map_async(do_multidop_for_time, times)
 
 
 #Reduce the result to get a list of output
