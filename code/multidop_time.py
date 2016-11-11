@@ -81,19 +81,20 @@ def do_multidop_for_time(frame_time):
         
         one_minute_later = frame_time+timedelta(minutes=1)
         ten_minutes_ago = frame_time-timedelta(minutes=10)
-    
-        times_berr = time_procedures.get_radar_times_berr(frame_time.year,
-                                                          frame_time.month,
-                                                          frame_time.day,
-                                                          frame_time.hour,
-                                                          frame_time.minute,                                       
+        one_minute_earlier = frame_time-timedelta(minutes=1)
+
+        times_berr = time_procedures.get_radar_times_berr(one_minute_earlier.year,
+                                                          one_minute_earlier.month,
+                                                          one_minute_earlier.day,
+                                                          one_minute_earlier.hour,
+                                                          one_minute_earlier.minute,                                       
                                                           one_minute_later.year,
                                                           one_minute_later.month,
                                                           one_minute_later.day,
                                                           one_minute_later.hour,
                                                           one_minute_later.minute,
                                                           minute_interval=0)
-        print(frame_time)
+        print(times_berr)
         
  
         nearest_index = time_procedures.find_nearest(Time[:], seconds_in_file)
@@ -110,11 +111,12 @@ def do_multidop_for_time(frame_time):
         us = u[int(nearest_index):int(furthest_index)]
         vs = v[int(nearest_index):int(furthest_index)]
         alts = alt[int(nearest_index):int(furthest_index)]
-        sounding_file_name = ('sounding_file' + year_str 
-                                              + month_str
-                                              + day_str
-                                              + hour_str
-                                              + minute_str)
+        sounding_file_name = (time_procedures.out_data_path + 'soundings/'
+                                                            + year_str 
+                                                            + month_str
+                                                            + day_str
+                                                            + hour_str
+                                                            + minute_str)
                                               
 
         file = open(sounding_file_name, 'w')
@@ -306,7 +308,7 @@ def do_multidop_for_time(frame_time):
               'calc_params': calc_file_name, # .dda file for parameters 
                                              # related to minimization routine
               'anel': 1, # 0 = Boussinesq approximation  1 = anelastic 
-              'laplace': 0, # 0 = 1st order derivatives for smoothing, 1 = second
+              'laplace': 1, # 0 = 1st order derivatives for smoothing, 1 = second
               'read_dataweights': 2, # 0 = calculate data constraint weights/output, 
                                      # 1 = read from file, 2 = weigh all equally
               'max_dist': 10.0, # How much distance analysis and observational 
@@ -320,12 +322,12 @@ def do_multidop_for_time(frame_time):
               'upper_bc': 1, # 1 = w = 0 as upper boundary condition, -1 = ignore
               'itmax_frprmn': [200, 10], # max iterations in frprmn function
               'itmax_dbrent': 200, # max iterations in dbrent function
-              'C1b': 1.0,  # Data weighting factor
-              'C2b': 10.0,  # Mass continuity weighting factor
+              'C1b': 0.1,  # Data weighting factor
+              'C2b': 500.0,  # Mass continuity weighting factor
               'C3b': 0.0,  # Vorticity weighting factor
-              'C4b': 1.0,  # Horizontal smoothing factor
-              'C5b': 0.0,  # Vertical smoothing factor
-              'C8b': 0.001,  # Sounding factor
+              'C4b': 5.0,  # Horizontal smoothing factor
+              'C5b': 5.0,  # Vertical smoothing factor
+              'C8b': 0.01,  # Sounding factor
               'vary_weights': 0,
               # Define filter with ONE of the following forms.
               # filter: none

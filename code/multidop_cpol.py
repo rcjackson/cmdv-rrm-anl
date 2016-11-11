@@ -17,8 +17,8 @@ start_second = 0
 end_year = 2006
 end_month = 1
 end_day = 20
-end_hour = 1
-end_minute = 0
+end_hour = 01
+end_minute = 00
 end_second = 0
 
 
