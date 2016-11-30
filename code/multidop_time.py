@@ -60,7 +60,21 @@ def do_multidop_for_time(frame_time):
                                            + minute_str +'.nc')
     print('Does file ' + fname + ' exist?')
     if(not os.path.isfile(fname)):
-        Sounding_netcdf = Dataset(time_procedures.sounding_file, mode='r')
+        one_day_ago = frame_time-timedelta(days=1, minutes=1)
+        sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
+                                                            one_day_ago.month,
+                                                            one_day_ago.day,
+                                                            one_day_ago.hour,
+                                                            one_day_ago.minute,
+                                                            frame_time.year,
+                                                            frame_time.month,
+                                                            frame_time.day,
+                                                            frame_time.hour,
+                                                            frame_time.minute,
+                                                            minute_interval=60)
+        print(sounding_times)
+        sounding_time = sounding_times[len(sounding_times)-1]
+        Sounding_netcdf = time_procedures.get_sounding(sounding_time)
 
         # Convert timestamps to datetime format
         Time = Sounding_netcdf.variables['time_offset'][:]
@@ -95,22 +109,7 @@ def do_multidop_for_time(frame_time):
                                                           one_minute_later.minute,
                                                           minute_interval=0)
         print(times_berr)
-        
- 
-        nearest_index = time_procedures.find_nearest(Time[:], seconds_in_file)
-    
-        # Go backwards in time until altitude stops decreasing
-        while(alt[nearest_index-1] < alt[nearest_index]):
-            nearest_index = nearest_index - 1
-
-        # Go forwards in time until altitude stops increasing
-        furthest_index = nearest_index
-        while(alt[furthest_index+1] > alt[furthest_index]):
-            furthest_index = furthest_index + 1  
-    
-        us = u[int(nearest_index):int(furthest_index)]
-        vs = v[int(nearest_index):int(furthest_index)]
-        alts = alt[int(nearest_index):int(furthest_index)]
+            
         sounding_file_name = (time_procedures.out_data_path + 'soundings/'
                                                             + year_str 
                                                             + month_str
@@ -122,9 +121,9 @@ def do_multidop_for_time(frame_time):
         file = open(sounding_file_name, 'w')
  
         # Take 1000 evenly spaced levels from the sounding and place them into the file
-        us = us[~us.mask]
-        vs = vs[~vs.mask]
-        alts = alts[~us.mask]
+        us = u[u > -75]
+        vs = v[u > -75]
+        alts = alt[u > -75]
         step = int(math.floor(len(us)/500))
 
         for i in range(0, len(us), step):
@@ -142,36 +141,40 @@ def do_multidop_for_time(frame_time):
         except:
             print('Cannot find matching time from Berrima radar, skipping')
             return
-
+	
+	bt = time.time()
         print('Calculating texture....')
         nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
         nyq_Berr = Radar_berr.instrument_parameters['nyquist_velocity']['data'][0]
         data = ndimage.filters.generic_filter(Radar.fields['velocity']['data'],
-                                             pyart.util.interval_std, size = (6,6),
+                                             pyart.util.interval_std, size = (4,4),
                                              extra_arguments = (-nyq_Gunn, nyq_Gunn))
         filtered_data = ndimage.filters.median_filter(data, size = (4,4))
         texture_field = pyart.config.get_metadata('velocity')
         texture_field['data'] = filtered_data
         Radar.add_field('velocity_texture', texture_field, replace_existing = True)
         data = ndimage.filters.generic_filter(Radar_berr.fields['velocity']['data'],
-                                              pyart.util.interval_std, size = (6,6),
+                                              pyart.util.interval_std, size = (4,4),
                                               extra_arguments = (-nyq_Gunn, nyq_Gunn))
         filtered_data = ndimage.filters.median_filter(data, size = (4,4))
         texture_field = pyart.config.get_metadata('velocity')
         texture_field['data'] = filtered_data
         Radar_berr.add_field('velocity_texture', texture_field, replace_existing = True)
         print('Done!')
-    
+	print((time.time()-bt)/60.0, 'minutes to process')
+	    
         # Apply gatefilter based on velocity and despeckling
         gatefilter_Gunn = pyart.correct.despeckle_field(Radar, 
                                                         'corrected_reflectivity', 
                                                         size=6)
         gatefilter_Gunn.exclude_above('velocity_texture', 4)
+	gatefilter_Gunn.exclude_below('corrected_reflectivity', 1)
 
         gatefilter_Berr = pyart.correct.despeckle_field(Radar_berr, 
                                                         'corrected_reflectivity', 
                                                         size=6)
         gatefilter_Berr.exclude_above('velocity_texture', 4)
+	gatefilter_Gunn.exclude_below('corrected_reflectivity', 1)
 
         # Change variable names to DT (reflectivity) and VT (velocity) expected by multidop
         # If you needed to dealias or perform other corrections,
@@ -201,27 +204,28 @@ def do_multidop_for_time(frame_time):
         grid_cpol = time_procedures.grid_radar(Radar, 
                                                origin=(Radar.latitude['data'][0], 
                                                Radar.longitude['data'][0]),
-                                               xlim=(-60000, 60000), 
-                                               ylim=(-60000, 60000), 
+                                               xlim=(-60000, 50000), 
+                                               ylim=(-50000, 30000), 
                                                fields=['DT', 'VT'], 
-                                               min_radius=500.0, 
+                                               min_radius=750.0, 
                                                bsp=1.0, nb=1.5,
-                                               h_factor=3.0, 
+                                               h_factor=2.0, 
                                                gatefilter=gatefilter_Gunn,
                                                zlim=(1000, 20000), 
-                                               grid_shape=(39, 121, 121))
+                                               grid_shape=(39, 81, 111))
         grid_Berr = time_procedures.grid_radar(Radar_berr, 
                                                origin=(Radar.latitude['data'][0], 
                                                Radar.longitude['data'][0]),
                                                fields=['DT', 'VT'],
-                                               xlim=(-60000, 60000), 
-                                               ylim=(-60000, 60000), 
+                                               xlim=(-60000, 50000), 
+                                               ylim=(-50000, 30000), 
                                                zlim=(1000, 20000), 
-                                               min_radius=500.0,  
-                                               grid_shape=(39, 121, 121), 
+                                               min_radius=750.0,  
+                                               grid_shape=(39, 81, 111), 
                                                gatefilter=gatefilter_Berr,
                                                bsp=1.0, nb=1.5, 
-                                               h_factor=3.0)
+                                               h_factor=2.0)
+
 	grid_Berr.fields['DT']['data'] = grid_cpol.fields['DT']['data']
         # The analysis engine requires azimuth and elevation to be part of the grid.
         # This information is computed from the grid geometry.
@@ -269,10 +273,10 @@ def do_multidop_for_time(frame_time):
                                                    origin=(Radar_prev.latitude['data'][0], 
                                                    Radar_prev.longitude['data'][0]),
                                                    xlim=(-60000, 60000), 
-                                                   ylim=(-60000, 60000), 
+                                                   ylim=(-50000, 30000), 
                                                    fields=['DT'],
                                                    zlim=(1000, 20000), 
-                                                   grid_shape=(39, 121, 121))
+                                                   grid_shape=(39, 121, 81))
             (vt,ut) = pyart.retrieve.grid_displacement_pc(grid_prev, grid_cpol, 
                                                           'DT', 9, 
                                                           return_value='velocity')
@@ -289,10 +293,17 @@ def do_multidop_for_time(frame_time):
                                                         + day_str
                                                         + hour_str
                                                         + minute_str +'.dda')
+    
+        frprmn_out_name = (time_procedures.out_data_path + '/dda_files/frprmn_out' 
+                                                        + year_str 
+                                                        + month_str
+                                                        + day_str
+                                                        + hour_str
+                                                        + minute_str +'.nc')
         localfile = tempfile.NamedTemporaryFile()
         pd = {'dir': './',
-              'x': [-60000.0, 1000.0, 121],   # start, step, max = min + (steps-1)
-              'y': [-60000.0, 1000.0, 121],
+              'x': [-60000.0, 1000.0, 111],   # start, step, max = min + (steps-1)
+              'y': [-50000.0, 1000.0, 81],
               'z': [1000.0, 500.0,  39],
               'grid': [grid_cpol.origin_longitude['data'][0], 
                        grid_cpol.origin_latitude['data'][0], 
@@ -304,11 +315,12 @@ def do_multidop_for_time(frame_time):
               'vt': 'VT',  # Name of velocity field. Must be common between radars.
               'bgfile': sounding_file_name, # Name of sounding file
               'writeout': localfile.name, # Name of output grid file
+              'frprmn_out': frprmn_out_name,
               'min_cba': 30.0,  # Minimum beam-crossing angle
               'calc_params': calc_file_name, # .dda file for parameters 
                                              # related to minimization routine
               'anel': 1, # 0 = Boussinesq approximation  1 = anelastic 
-              'laplace': 1, # 0 = 1st order derivatives for smoothing, 1 = second
+              'laplace': 0, # 0 = 1st order derivatives for smoothing, 1 = second
               'read_dataweights': 2, # 0 = calculate data constraint weights/output, 
                                      # 1 = read from file, 2 = weigh all equally
               'max_dist': 10.0, # How much distance analysis and observational 
@@ -323,17 +335,17 @@ def do_multidop_for_time(frame_time):
               'itmax_frprmn': [200, 10], # max iterations in frprmn function
               'itmax_dbrent': 200, # max iterations in dbrent function
               'C1b': 0.1,  # Data weighting factor
-              'C2b': 500.0,  # Mass continuity weighting factor
+              'C2b': 100.0,  # Mass continuity weighting factor
               'C3b': 0.0,  # Vorticity weighting factor
-              'C4b': 5.0,  # Horizontal smoothing factor
-              'C5b': 5.0,  # Vertical smoothing factor
+              'C4b': 1.0,  # Horizontal smoothing factor
+              'C5b': 1.0,  # Vertical smoothing factor
               'C8b': 0.01,  # Sounding factor
               'vary_weights': 0,
               # Define filter with ONE of the following forms.
               # filter: none
               # filter: filter_frequency Leise nstep
               # filter: filter_frequency low-pass alpha
-              'filter': ['none', '', ''],
+              'filter': ['35', 'Leise', '2'],
               # Coverage values for various combinations of radars.
               # Each line should provide the type of coverage value, radar count,
               # radar names, and the value, in the following form:
@@ -363,10 +375,10 @@ def do_multidop_for_time(frame_time):
               # combinations of radars.
               'cvg_opt_bg': [1, 1, 1],
               'cvg_sub_bg': [0, 0, 0],
-              'cvg_opt_fil': [0, 1, 1],
-              'cvg_sub_fil': [0, 0, 0],
+              'cvg_opt_fil': [1, 1, 1],
+              'cvg_sub_fil': [1, 0, 0],
               'cvg_bg': [0, 0, 0],
-              'cvg_fil': [0, 0, 0],
+              'cvg_fil': [1, 0, 0],
               'sseq_trip': [1.0, 1.0, 0.0]
             }
         dda_file_name = (time_procedures.out_data_path + '/dda_files/cpol_test' 

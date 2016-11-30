@@ -10,15 +10,15 @@ import numpy as np
 start_year = 2006
 start_day = 19
 start_month = 1
-start_hour = 23
-start_minute = 00
+start_hour = 4
+start_minute = 1
 start_second = 0
 
 end_year = 2006
 end_month = 1
-end_day = 20
-end_hour = 01
-end_minute = 00
+end_day = 22
+end_hour = 0
+end_minute = 1
 end_second = 0
 
 
