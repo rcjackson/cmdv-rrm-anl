@@ -209,22 +209,22 @@ def do_multidop_for_time(frame_time):
                                                fields=['DT', 'VT'], 
                                                min_radius=750.0, 
                                                bsp=1.0, nb=1.5,
-                                               h_factor=2.0, 
+                                               h_factor=3.0, 
                                                gatefilter=gatefilter_Gunn,
-                                               zlim=(1000, 20000), 
-                                               grid_shape=(39, 81, 111))
+                                               zlim=(500, 16000), 
+                                               grid_shape=(32, 81, 111))
         grid_Berr = time_procedures.grid_radar(Radar_berr, 
                                                origin=(Radar.latitude['data'][0], 
                                                Radar.longitude['data'][0]),
                                                fields=['DT', 'VT'],
                                                xlim=(-60000, 50000), 
                                                ylim=(-50000, 30000), 
-                                               zlim=(1000, 20000), 
+                                               zlim=(500, 16000), 
                                                min_radius=750.0,  
-                                               grid_shape=(39, 81, 111), 
+                                               grid_shape=(32, 81, 111), 
                                                gatefilter=gatefilter_Berr,
                                                bsp=1.0, nb=1.5, 
-                                               h_factor=2.0)
+                                               h_factor=4.0)
 
 	grid_Berr.fields['DT']['data'] = grid_cpol.fields['DT']['data']
         # The analysis engine requires azimuth and elevation to be part of the grid.
@@ -275,8 +275,8 @@ def do_multidop_for_time(frame_time):
                                                    xlim=(-60000, 60000), 
                                                    ylim=(-50000, 30000), 
                                                    fields=['DT'],
-                                                   zlim=(1000, 20000), 
-                                                   grid_shape=(39, 121, 81))
+                                                   zlim=(500, 16000), 
+                                                   grid_shape=(32, 121, 81))
             (vt,ut) = pyart.retrieve.grid_displacement_pc(grid_prev, grid_cpol, 
                                                           'DT', 9, 
                                                           return_value='velocity')
@@ -304,7 +304,7 @@ def do_multidop_for_time(frame_time):
         pd = {'dir': './',
               'x': [-60000.0, 1000.0, 111],   # start, step, max = min + (steps-1)
               'y': [-50000.0, 1000.0, 81],
-              'z': [1000.0, 500.0,  39],
+              'z': [500.0, 500.0,  32],
               'grid': [grid_cpol.origin_longitude['data'][0], 
                        grid_cpol.origin_latitude['data'][0], 
                        50.0],
@@ -335,17 +335,17 @@ def do_multidop_for_time(frame_time):
               'itmax_frprmn': [200, 10], # max iterations in frprmn function
               'itmax_dbrent': 200, # max iterations in dbrent function
               'C1b': 0.1,  # Data weighting factor
-              'C2b': 100.0,  # Mass continuity weighting factor
+              'C2b': 1500.0,  # Mass continuity weighting factor
               'C3b': 0.0,  # Vorticity weighting factor
-              'C4b': 1.0,  # Horizontal smoothing factor
-              'C5b': 1.0,  # Vertical smoothing factor
+              'C4b': 100.0,  # Horizontal smoothing factor
+              'C5b': 2.0,  # Vertical smoothing factor
               'C8b': 0.01,  # Sounding factor
               'vary_weights': 0,
               # Define filter with ONE of the following forms.
               # filter: none
               # filter: filter_frequency Leise nstep
               # filter: filter_frequency low-pass alpha
-              'filter': ['35', 'Leise', '2'],
+              'filter': ['60', 'Leise', '2'],
               # Coverage values for various combinations of radars.
               # Each line should provide the type of coverage value, radar count,
               # radar names, and the value, in the following form:
@@ -373,12 +373,12 @@ def do_multidop_for_time(frame_time):
               #
               # If this file is being used, coverage values must be provided for all
               # combinations of radars.
-              'cvg_opt_bg': [1, 1, 1],
-              'cvg_sub_bg': [0, 0, 0],
-              'cvg_opt_fil': [1, 1, 1],
-              'cvg_sub_fil': [1, 0, 0],
-              'cvg_bg': [0, 0, 0],
-              'cvg_fil': [1, 0, 0],
+              'cvg_opt_bg': [1, 1, 0],
+              'cvg_sub_bg': [1, 1, 0],
+              'cvg_opt_fil': [0, 0, 0],
+              'cvg_sub_fil': [1, 1, 0],
+              'cvg_bg': [1, 1, 0],
+              'cvg_fil': [0, 0, 0],
               'sseq_trip': [1.0, 1.0, 0.0]
             }
         dda_file_name = (time_procedures.out_data_path + '/dda_files/cpol_test' 
