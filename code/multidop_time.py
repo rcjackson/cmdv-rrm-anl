@@ -129,6 +129,12 @@ def do_multidop_for_time(frame_time):
         for i in range(0, len(us), step):
             input_string = (str(alts[i]) + ' ' + str(us[i]) + ' ' + str(vs[i]) + '\n')
             file.write(input_string)
+	
+        # If baloon popped below 15 km (approximate tropopause), then don't use sounding
+	if(alts[-1] < 15000):
+            use_sounding = 0
+        else:
+            use_sounding = 1
 
         file.close()
         # Calculate texture of velocity field for Berrima and CPOL
@@ -211,22 +217,24 @@ def do_multidop_for_time(frame_time):
                                                bsp=1.0, nb=1.5,
                                                h_factor=3.0, 
                                                gatefilter=gatefilter_Gunn,
-                                               zlim=(500, 16000), 
-                                               grid_shape=(32, 81, 111))
+                                               zlim=(500, 20000), 
+                                               grid_shape=(40, 81, 111))
         grid_Berr = time_procedures.grid_radar(Radar_berr, 
                                                origin=(Radar.latitude['data'][0], 
                                                Radar.longitude['data'][0]),
                                                fields=['DT', 'VT'],
                                                xlim=(-60000, 50000), 
                                                ylim=(-50000, 30000), 
-                                               zlim=(500, 16000), 
+                                               zlim=(500, 20000), 
                                                min_radius=750.0,  
-                                               grid_shape=(32, 81, 111), 
+                                               grid_shape=(40, 81, 111), 
                                                gatefilter=gatefilter_Berr,
                                                bsp=1.0, nb=1.5, 
                                                h_factor=4.0)
-
+	
+	# Berrima reflectivities are corrupt for many scans -- prefer CPOL reflectivities for grid
 	grid_Berr.fields['DT']['data'] = grid_cpol.fields['DT']['data']
+
         # The analysis engine requires azimuth and elevation to be part of the grid.
         # This information is computed from the grid geometry.
         grid_cpol = multidop.angles.add_azimuth_as_field(grid_cpol)
@@ -275,8 +283,8 @@ def do_multidop_for_time(frame_time):
                                                    xlim=(-60000, 60000), 
                                                    ylim=(-50000, 30000), 
                                                    fields=['DT'],
-                                                   zlim=(500, 16000), 
-                                                   grid_shape=(32, 121, 81))
+                                                   zlim=(500, 20000), 
+                                                   grid_shape=(40, 121, 81))
             (vt,ut) = pyart.retrieve.grid_displacement_pc(grid_prev, grid_cpol, 
                                                           'DT', 9, 
                                                           return_value='velocity')
@@ -301,10 +309,20 @@ def do_multidop_for_time(frame_time):
                                                         + hour_str
                                                         + minute_str +'.nc')
         localfile = tempfile.NamedTemporaryFile()
+
+        # If sounding is available, favor constraint based on sounding
+        # vs. data, otherwise favor data more
+        if(use_sounding == 0):
+           C8b = 0.0
+           C1b = 1.0
+        else:
+           C1b = 0.1
+           C8b = 0.01
+
         pd = {'dir': './',
               'x': [-60000.0, 1000.0, 111],   # start, step, max = min + (steps-1)
               'y': [-50000.0, 1000.0, 81],
-              'z': [500.0, 500.0,  32],
+              'z': [500.0, 500.0,  40],
               'grid': [grid_cpol.origin_longitude['data'][0], 
                        grid_cpol.origin_latitude['data'][0], 
                        50.0],
@@ -334,12 +352,12 @@ def do_multidop_for_time(frame_time):
               'upper_bc': 1, # 1 = w = 0 as upper boundary condition, -1 = ignore
               'itmax_frprmn': [200, 10], # max iterations in frprmn function
               'itmax_dbrent': 200, # max iterations in dbrent function
-              'C1b': 0.1,  # Data weighting factor
+              'C1b': C1b,  # Data weighting factor
               'C2b': 1500.0,  # Mass continuity weighting factor
               'C3b': 0.0,  # Vorticity weighting factor
               'C4b': 100.0,  # Horizontal smoothing factor
               'C5b': 2.0,  # Vertical smoothing factor
-              'C8b': 0.01,  # Sounding factor
+              'C8b': C8b,  # Sounding factor
               'vary_weights': 0,
               # Define filter with ONE of the following forms.
               # filter: none
