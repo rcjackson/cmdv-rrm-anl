@@ -32,6 +32,8 @@ end_minute = 2
 def display_time(rad_date):
     import pyart
     import matplotlib
+    import sys
+    sys.path.append('/home/rjackson/cmdv-rrm-anl/code/')
     import time_procedures
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt
@@ -72,129 +74,18 @@ def display_time(rad_date):
         radar = pyart.aux_io.read_radx(file_name_str)
         return radar 
     
-    # get_radar_times_cpol
-    #     start_year = Start year of animation
-    #     start_month = Start month of animation
-    #     start_day = Start day of animation
-    #     start_hour = Start hour of animation
-    #     end_year = End year of animation
-    #     end_month = End month of animation
-    #     end_day = End day of animation
-    #     end_minute = End minute of animation
-    #     minute_interval = Interval in minutes between scans (default is 5)
-    # This procedure acquires an array of Radar classes between start_time and end_time  
-    def get_radar_times_cpol_rapic(start_year, start_month, start_day,
-                                   start_hour, start_minute, end_year,
-                                   end_month, end_day, end_hour, 
-                                   end_minute, minute_interval=5):
-        from datetime import timedelta, datetime
-        import glob
-        from copy import deepcopy
-        start_time = datetime(start_year,
-                              start_month,
-                              start_day,
-                              start_hour,
-                              start_minute,
-                              )
-        end_time = datetime(end_year,
-                            end_month,
-                            end_day,
-                            end_hour,
-                            end_minute,
-                            )  
-        deltatime = end_time - start_time
-        if(deltatime.seconds > 0 or deltatime.minute > 0):
-            no_days = deltatime.days + 1
-        else:
-            no_days = deltatime.days
-    
-        if(start_day != end_day):
-            no_days = no_days + 1
-        days = range(0, no_days)
-        print('We are about to load grid files for ' + str(no_days) + ' days')
-      
-        # Find the list of files for each day
-        cur_time = start_time
- 
-        file_list = []
-        time_list = []
-        date_list_final = []
-        for i in days:
-            year_str = "%04d" % cur_time.year
-            day_str = "%02d" % cur_time.day
-            month_str = "%02d" % cur_time.month
-            if(cur_time.year == 2009 or (cur_time.year == 2010 and
-                                         cur_time.month < 6 )):
-                dir_str = 'cpol_0910/rapic/'
-            else:
-                dir_str = 'cpol_1011/rapic/'
-
-            format_str = (data_path_cpol +
-                          dir_str +
-                          year_str +
-                          month_str + 
-                          day_str + 
-                          '*Gunn_Pt' +
-                          '.rapic')
-            print('Looking for files with format ' + format_str)      
-            data_list = glob.glob(format_str)
-            if(len(data_list) > 0):
-                day = datetime(cur_time.year, cur_time.month, cur_time.day, 0, 0, 1)
-                date_list_final.append(day)
-
-            for j in range(0, len(data_list)):
-                file_list.append(data_list[j])
-            cur_time = cur_time + timedelta(days=1)
-    
-        # Parse all of the dates and time in the interval and add them to the time list
-        past_time = []
-        for file_name in file_list:
-            date_str = file_name[-25:-11]
-            year_str = date_str[0:4]
-            month_str = date_str[4:6]
-            day_str = date_str[6:8]
-            hour_str = date_str[8:10]
-            minute_str = date_str[10:12]
-            cur_time = datetime(int(year_str),
-                                int(month_str),
-                                int(day_str),
-                                int(hour_str),
-                                int(minute_str),
-                                0)
-            time_list.append(cur_time)
-    
-        # Sort time list and make sure time are at least xx min apart
-        time_list.sort()
-        time_list_sorted = deepcopy(time_list)
-   
-        time_list_final = []
-        past_time = []
-       
-        for times in time_list_sorted: 
-            cur_time = times  
-        
-            if(past_time == []):
-                past_time = cur_time
-            
-            if(cur_time - past_time >= timedelta(minutes=minute_interval)
-               and cur_time >= start_time and cur_time <= end_time):
-                time_list_final.append(cur_time)
-                past_time = cur_time
-                   
-        return time_list_final, date_list_final
-    
     one_day_later = rad_date+timedelta(days=1)
-    times, dates = get_radar_times_cpol_rapic(rad_date.year, 
-                                              rad_date.month,
-                                              rad_date.day,
-                                              1, 
-                                              1,
-                                              one_day_later.year, 
-                                              one_day_later.month,
-                                              one_day_later.day,
-                                              0, 
-                                              1,
-                                              )
+    times, dates = time_procedures.get_radar_times_cpol_rapic(rad_date.year, 
+                                                              rad_date.month,
+                                                              rad_date.day,
+                                                              1, 
+                                                              1,
+                                                              one_day_later.year, 
+                                                              one_day_later.month,
+                                                              one_day_later.day,
+                                                              0, 
+                                                              1,
+                                                              )
     for rad_time in times:
         year_str = "%04d" % rad_time.year
         month_str = "%02d" % rad_time.month
@@ -225,8 +116,8 @@ def display_time(rad_date):
                     '_PPI_deal.cf')
     
         if(not os.path.isfile(out_file)):
-            try:
-                radar = get_radar_from_cpol_rapic(rad_time)
+            #try:
+                radar = time_procedures.get_radar_from_cpol_rapic(rad_time)
                 if(cpol_format == 1):
                     ref_field = 'Refl'
                     vel_field = 'Vel'
@@ -259,19 +150,21 @@ def display_time(rad_date):
                 v = Sounding_netcdf.variables['v_wind'][:]
     
                 Sounding_netcdf.close()
-                steps = np.floor(len(u)/50)
+                steps = np.floor(len(u)/70)
                 wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                              u[0::steps],
                                                                              v[0::steps])
-    
+                
                 ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
                 wind_profile.u = wind_profile.u_wind
                 wind_profile.v = wind_profile.v_wind
-    
+               
+                print(wind_profile)
                 # Dealias velocities
                 gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                      vel_field)
                 gatefilter.exclude_below(ref_field, 0)
+                
                 #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                 #                                                            vel_field=vel_field,
                 #                                                            gatefilter=gatefilter,
@@ -287,17 +180,19 @@ def display_time(rad_date):
                                                                           vel_field=vel_field,
                                                                           gatefilter=gatefilter,
                                                                           keep_original=False,
-                                                                          sonde_profile=wind_profile,
                                                                           last_radar=last_Radar,
                                                                           sign=-1,
+                                                                          filt=1,
+                                                                          sonde_profile=wind_profile,
                                                                           ) 
                 except:
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
                                                                           vel_field=vel_field,
                                                                           gatefilter=gatefilter,
                                                                           keep_original=False,
+                                                                          sign=1,
+                                                                          filt=1,
                                                                           sonde_profile=wind_profile,
-  	                                                                  sign=-1,
                                                                           ) 
                 radar.add_field_like(vel_field, 
                                      'corrected_velocity', 
@@ -305,7 +200,6 @@ def display_time(rad_date):
                                      replace_existing=True)
  
                 # Save to Cf/Radial file
-        
                 pyart.io.write_cfradial(out_path + out_file, radar)
                 last_Radar = radar
                 out_path = (out_file_path +
@@ -338,7 +232,7 @@ def display_time(rad_date):
                                  vmax=30)
                 plt.savefig(out_path + out_file)
                 plt.close() 
-            except:
+            #except:
                 print('Skipping corrupt time' +
                       year_str + 
                       '-' +

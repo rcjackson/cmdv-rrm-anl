@@ -155,6 +155,8 @@ def get_radar_times_cpol(start_year, start_month, start_day,
 def display_time(rad_time):
     import pyart
     import matplotlib
+    import os
+    os.chdir('/home/rjackson/cmdv-rrm-anl/code/')
     import time_procedures
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt

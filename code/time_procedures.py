@@ -141,10 +141,8 @@ def get_radar_times_cpol_rapic(start_year, start_month, start_day,
    
     time_list_final = []
     past_time = []
-    
-    
+       
     for times in time_list_sorted: 
-        
         cur_time = times  
         
         if(past_time == []):
