@@ -165,6 +165,7 @@ def display_time(rad_date):
                                                                      vel_field)
                 gatefilter.exclude_below(ref_field, 0)
                 
+                
                 #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                 #                                                            vel_field=vel_field,
                 #                                                            gatefilter=gatefilter,
@@ -184,6 +185,7 @@ def display_time(rad_date):
                                                                           sign=-1,
                                                                           filt=1,
                                                                           sonde_profile=wind_profile,
+                                                                          ba_mincount=5,
                                                                           ) 
                 except:
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
@@ -193,6 +195,7 @@ def display_time(rad_date):
                                                                           sign=1,
                                                                           filt=1,
                                                                           sonde_profile=wind_profile,
+                                                                          ba_mincount=5, 
                                                                           ) 
                 radar.add_field_like(vel_field, 
                                      'corrected_velocity', 
