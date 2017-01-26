@@ -162,6 +162,7 @@ def display_time(rad_time):
     from matplotlib import pyplot as plt
     import os
     from datetime import timedelta
+    from scipy import ndimage
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -225,7 +226,7 @@ def display_time(rad_time):
                 second_str +
                 '_PPI_deal.cf')
     
-    if(not os.path.isfile(out_file)):
+    if(not os.path.isfile(out_path + out_file)):
         #try:
             radar = get_radar_from_cpol_rapic(rad_time)
             if(cpol_format == 1):
@@ -236,48 +237,66 @@ def display_time(rad_time):
                 vel_field = 'velocity'
 
             # Get sounding for 4DD intialization
-            #one_day_ago = rad_time-timedelta(days=1, minutes=1)
-            #sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
-            #                                                    one_day_ago.month,
-            #                                                    one_day_ago.day,
-            #                                                    one_day_ago.hour,
-            #                                                    one_day_ago.minute,
-            #                                                    rad_time.year,
-            #                                                    rad_time.month,
-            #                                                    rad_time.day,
-            #                                                    rad_time.hour,
-            #                                                    rad_time.minute,
-            #                                                    minute_interval=60)
-            #print(sounding_times)
-            #sounding_time = sounding_times[len(sounding_times)-1]
-            #Sounding_netcdf = time_procedures.get_sounding(sounding_time)
+            one_day_ago = rad_time-timedelta(days=1, minutes=1)
+            sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
+                                                                one_day_ago.month,
+                                                                one_day_ago.day,
+                                                                one_day_ago.hour,
+                                                                one_day_ago.minute,
+                                                                rad_time.year,
+                                                                rad_time.month,
+                                                                rad_time.day,
+                                                                rad_time.hour,
+                                                                rad_time.minute,
+                                                                minute_interval=60)
+            print(sounding_times)
+            sounding_time = sounding_times[len(sounding_times)-1]
+            Sounding_netcdf = time_procedures.get_sounding(sounding_time)
 
             # Convert timestamps to datetime format
-            #Time = Sounding_netcdf.variables['time_offset'][:]
-            #base_time = Sounding_netcdf.variables['base_time'][:]
-            #alt = Sounding_netcdf.variables['alt'][:]
-            #u = Sounding_netcdf.variables['u_wind'][:]
-            #v = Sounding_netcdf.variables['v_wind'][:]
+            Time = Sounding_netcdf.variables['time_offset'][:]
+            base_time = Sounding_netcdf.variables['base_time'][:]
+            alt = Sounding_netcdf.variables['alt'][:]
+            u = Sounding_netcdf.variables['u_wind'][:]
+            v = Sounding_netcdf.variables['v_wind'][:]
     
-            #Sounding_netcdf.close()
-            #steps = np.floor(len(u)/50)
-            #wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
-            #                                                             u[0::steps],
-            #                                                             v[0::steps])
+            Sounding_netcdf.close()
+            steps = np.floor(len(u)/50)
+            wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
+                                                                         u[0::steps],
+                                                                         v[0::steps])
     
             ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
-            #wind_profile.u = wind_profile.u_wind
-            #wind_profile.v = wind_profile.v_wind
-    
+            wind_profile.u = wind_profile.u_wind
+            wind_profile.v = wind_profile.v_wind
+        
+            # Filter clutter and noise from velocities
+
+            #nyq_Gunn = radar.instrument_parameters['nyquist_velocity']['data'][0]
+            
+            #data = ndimage.filters.generic_filter(radar.fields[vel_field]['data'],
+            #                                      pyart.util.interval_std, size = (4,4),
+            #                                      extra_arguments = (-nyq_Gunn, nyq_Gunn))
+            #filtered_data = ndimage.filters.median_filter(data, size = (4,4))
+            #texture_field = pyart.config.get_metadata(vel_field)
+            #texture_field['data'] = filtered_data
+            #radar.add_field('velocity_texture', texture_field, replace_existing = True)
+
             # Dealias velocities
             gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                  vel_field)
             gatefilter.exclude_below(ref_field, 0)
+            #gatefilter.exclude_below('velocity_texture', 4)
+            radar.add_field('sim_velocity',
+                            pyart.util.simulated_vel_from_profile(radar, 
+                                                                  wind_profile),
+                            replace_existing = True)
             corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                                                                         vel_field=vel_field,
                                                                         gatefilter=gatefilter,
                                                                         keep_original=False,
                                                                         centered=True,
+                                                                        interval_splits=8,
                                                                         skip_between_rays=0,
                                                                         skip_along_ray=0,
                                                                         rays_wrap_around=True,
@@ -286,7 +305,7 @@ def display_time(rad_time):
             radar.add_field_like(vel_field, 
                                  'corrected_velocity', 
                                  corrected_velocity_4dd['data'],
-                                replace_existing=True)
+                                 replace_existing=True)
  
             # Save to Cf/Radial file
         
@@ -372,11 +391,11 @@ My_View.execute('import numpy as np')
 My_View.execute('from time_procedures import get_radar_from_cpol_rapic')
 t1 = time.time()
 
-#for timer in times:
-#    display_time(timer)
+for timer in times:
+    display_time(timer)
 
 #Map the code and input to all workers
-result = My_View.map_async(display_time, times)
+#result = My_View.map_async(display_time, times)
 
 #Reduce the result to get a list of output
 qvps = result.get()

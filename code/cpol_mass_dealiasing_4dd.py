@@ -86,6 +86,7 @@ def display_time(rad_date):
                                                               0, 
                                                               1,
                                                               )
+    print(times)
     for rad_time in times:
         year_str = "%04d" % rad_time.year
         month_str = "%02d" % rad_time.month
@@ -115,7 +116,7 @@ def display_time(rad_date):
                     second_str +
                     '_PPI_deal.cf')
     
-        if(not os.path.isfile(out_file)):
+        if(not os.path.isfile(out_path + out_file)):
             #try:
                 radar = time_procedures.get_radar_from_cpol_rapic(rad_time)
                 if(cpol_format == 1):
@@ -150,7 +151,7 @@ def display_time(rad_date):
                 v = Sounding_netcdf.variables['v_wind'][:]
     
                 Sounding_netcdf.close()
-                steps = np.floor(len(u)/70)
+                steps = np.floor(len(u)/20)
                 wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                              u[0::steps],
                                                                              v[0::steps])
@@ -285,11 +286,11 @@ My_View.execute('import numpy as np')
 My_View.execute('import time_procedures')
 t1 = time.time()
 
-#for rad_date in dates:
-#    display_time(rad_date)
+for rad_date in dates:
+    display_time(rad_date)
 
 #Map the code and input to all workers
-result = My_View.map_async(display_time, dates)
+#result = My_View.map_async(display_time, dates)
 
 #Reduce the result to get a list of output
 qvps = result.get()
