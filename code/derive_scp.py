@@ -13,15 +13,15 @@ import time_procedures
 from netCDF4 import Dataset
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2011
-start_month = 1
-start_day = 28
+start_year = 2010
+start_month = 3
+start_day = 26
 start_hour = 0
 start_minute = 1
 
-end_year = 2011
-end_month = 1
-end_day = 29
+end_year = 2010
+end_month = 3
+end_day = 27
 end_hour = 1
 end_minute = 2
 
@@ -70,18 +70,22 @@ def SCP(rad_time):
 
     # Derive statistical coverage product
     for levels in range(0,grid_shape[0]):
-        numgt0 = len(np.where(reflectivity[levels] > 0))
+        array = np.where(reflectivity[levels] > 0)
+        numgt0 = len(array[0])
         SCP0[levels] = numgt0/total_points*100
-        numgt10 = len(np.where(reflectivity[levels] > 0))
+        array = np.where(reflectivity[levels] > 10)
+        numgt10 = len(array[0])
         SCP10[levels] = numgt10/total_points*100
-        numgt20 = len(np.where(reflectivity[levels] > 0))
+        array = np.where(reflectivity[levels] > 20)
+        numgt20 = len(array[0])
         SCP20[levels] = numgt20/total_points*100     
-        numgt30 = len(np.where(reflectivity[levels] > 0))
+        array = np.where(reflectivity[levels] > 30)
+        numgt30 = len(array[0])
         SCP30[levels] = numgt30/total_points*100    
-        numgt40 = len(np.where(reflectivity[levels] > 0))
+        array = np.where(reflectivity[levels] > 40)
+        numgt40 = len(array[0])
         SCP40[levels] = numgt40/total_points*100
-
-    
+       
     return SCP0, SCP10, SCP20, SCP30, SCP40
   
 times = time_procedures.get_grid_times_cpol(start_year, 
@@ -131,8 +135,20 @@ SCP20 = np.zeros((len(times), num_levels))
 SCP30 = np.zeros((len(times), num_levels))
 SCP40 = np.zeros((len(times), num_levels))
 i = 0
+years_array = np.zeros(len(times))
+months_array = np.zeros(len(times))
+days_array = np.zeros(len(times))
+hours_array = np.zeros(len(times))
+minutes_array = np.zeros(len(times))
+seconds_array = np.zeros(len(times))
+
 for timer in times:
     SCP0[i,:], SCP10[i,:], SCP20[i,:], SCP30[i,:], SCP40[i,:] = SCP(timer)
+    years_array[i] = timer.year
+    months_array[i] = timer.month
+    days_array[i] = timer.day
+    hours_array[i] = timer.hour
+    seconds_array[i] = timer.second
     i = i + 1
 
 # Output results into netCDF file
@@ -148,52 +164,52 @@ levels_file[:] = vert_levels
 SCP0_file = out_netcdf.createVariable('SCP0', 'f8', ('time','levels'))
 SCP0_file.long_name = '% of level > 0 dBZ'
 SCP0_file.units = '%'
-SCP0_file = SCP0
+SCP0_file[:,:] = SCP0
 
 SCP10_file = out_netcdf.createVariable('SCP10', 'f8', ('time','levels'))
 SCP10_file.long_name = '% of level > 10 dBZ'
 SCP10_file.units = '%'
-SCP10_file = SCP10
+SCP10_file[:,:] = SCP10
 
 SCP20_file = out_netcdf.createVariable('SCP20', 'f8', ('time','levels'))
 SCP20_file.long_name = '% of level > 20 dBZ'
 SCP20_file.units = '%'
-SCP20_file = SCP20
+SCP20_file[:,:] = SCP20
 
 SCP30_file = out_netcdf.createVariable('SCP30', 'f8', ('time','levels'))
 SCP30_file.long_name = '% of level > 30 dBZ'
 SCP30_file.units = '%'
-SCP30_file = SCP30
+SCP30_file[:,:] = SCP30
 
 SCP40_file = out_netcdf.createVariable('SCP40', 'f8', ('time','levels'))
 SCP40_file.long_name = '% of level > 40 dBZ'
 SCP40_file.units = '%'
-SCP40_file = SCP40
+SCP40_file[:,:] = SCP40
 
 years = out_netcdf.createVariable('years', 'i4', ('time',))
 years.long_name = 'Year'
 years.units = 'YYYY'
-years = timer.year
+years[:] = years_array
 
 days = out_netcdf.createVariable('days', 'i4', ('time',))
 days.long_name = 'Day'
 days.units = 'DD'
-days = timer.day
+days[:] = days_array
 
 months = out_netcdf.createVariable('months', 'i4', ('time',))
 months.long_name = 'Month'
 months.units = 'MM'
-months = timer.month
+months[:] = months_array
 
 hours = out_netcdf.createVariable('hours', 'i4', ('time',))
 hours.long_name = 'Hour'
 hours.units = 'HR'
-hours = timer.hour
+hours[:] = hours_array
 
 minutes = out_netcdf.createVariable('minutes', 'i4', ('time',))
 minutes.long_name = 'Minute'
 minutes.units = 'MM'
-minutes = timer.minute
+minutes[:] = minutes_array
 
 out_netcdf.close()
 
