@@ -9,6 +9,7 @@ from copy import deepcopy
 from ipyparallel import Client
 from time import sleep
 import time
+import time_procedures
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -227,8 +228,8 @@ def display_time(rad_time):
                 '_PPI_deal.cf')
     
     if(not os.path.isfile(out_path + out_file)):
-        #try:
-            radar = get_radar_from_cpol_rapic(rad_time)
+        try:
+            radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
             if(cpol_format == 1):
                 ref_field = 'Refl'
                 vel_field = 'Vel'
@@ -342,7 +343,7 @@ def display_time(rad_time):
             plt.savefig(out_path + out_file)
     
             plt.close() 
-        #except:
+        except:
             print('Skipping corrupt time' +
                   year_str + 
                   '-' +
@@ -352,21 +353,21 @@ def display_time(rad_time):
                   ':' +
                   minute_str)
 
-times = get_radar_times_cpol(start_year, 
-                             start_month,
-                             start_day,
-                             start_hour, 
-                             start_minute,
-                             end_year, 
-                             end_month,
-                             end_day,
-                             end_hour, 
-                             end_minute,
-                             )
+times = time_procedures.get_radar_times_cpol_cfradial(start_year, 
+                                                      start_month,
+                                                      start_day,
+                                                      start_hour, 
+                                                      start_minute,
+                                                      end_year, 
+                                                      end_month,
+                                                      end_day,
+                                                      end_hour, 
+                                                      end_minute,
+                                                      )
 
 # Go through all of the scans
-#for rad_time in times:
-#    display_time(rad_time)
+for rad_time in times:
+    display_time(rad_time)
 
 # Get iPython cluster
 state = 0
@@ -391,11 +392,11 @@ My_View.execute('import numpy as np')
 My_View.execute('from time_procedures import get_radar_from_cpol_rapic')
 t1 = time.time()
 
-for timer in times:
-    display_time(timer)
+#for timer in times:
+#    display_time(timer)
 
 #Map the code and input to all workers
-#result = My_View.map_async(display_time, times)
+result = My_View.map_async(display_time, times)
 
 #Reduce the result to get a list of output
 qvps = result.get()

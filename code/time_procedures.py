@@ -15,7 +15,7 @@ cpol_grid_data_path = '/home/rjackson/data/radar/grids/'
 data_path_sounding = '/home/rjackson/data/soundings/'
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-data_path_cpol_cfradial = '/home/rjackson/data/radar/cpol/'
+data_path_cpol_cfradial = '/home/rjackson/data/radar/cpol/cf_radial_0910/'
 data_path_berr_cfradial = '/home/rjackson/data/radar/berr/'
 out_file_path = '/home/rjackson/quicklook_plots/'
 
@@ -399,6 +399,7 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
                                   end_minute, minute_interval=5):
 
     from datetime import timedelta, datetime
+    from parse import parse
     start_time = datetime(start_year,
                           start_month,
                           start_day,
@@ -438,16 +439,14 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
         format_str = (data_path_cpol_cfradial + 
                       '/' +
                       year_str +
-                      '/' + 
                       month_str +
-                      '/' +
                       day_str +
                       '/'
-                      'Gunn_pt_' +
+                      'cfrad.' +
                       year_str +
                       month_str +
                       day_str +
-                     '*.cf')
+                      '*.nc')
        
         print('Looking for files with format ' + format_str)      
         data_list = glob.glob(format_str)
@@ -459,13 +458,19 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
     for file_name in file_list:
-        date_str = file_name[-26:-12]
-        year_str = date_str[0:4]
-        month_str = date_str[4:6]
-        day_str = date_str[6:8]
-        hour_str = date_str[8:10]
-        minute_str = date_str[10:12]
-        second_str = date_str[12:14]     
+        new_format_str = (data_path_cpol_cfradial +
+                         '/' +
+                         '{:d}' +
+                         '/' +
+                         'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Gunn_Pt_v{:d}_UNKNOWN_SUR.nc')
+        parameters = parse(new_format_str, file_name)
+        
+        year_str = np.floor(parameters[0]/10000)
+        month_str = np.floor((parameters[0]-year_str*10000)/100)
+        day_str = np.floor(parameters[0]-year_str*10000-month_str*100)
+        hour_str = np.floor(parameters[2]/10000)
+        minute_str = np.floor((parameters[2]-hour_str*10000)/100)
+        second_str = np.floor(parameters[2]-hour_str*10000-minute_str*100)   
         cur_time = datetime(int(year_str),
                             int(month_str),
                             int(day_str),
@@ -635,29 +640,32 @@ def get_radar_from_cpol(time):
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_cpol_cfradial(time):
     from datetime import timedelta, datetime
+    import glob
     year_str = "%04d" % time.year
     month_str = "%02d" % time.month
     day_str = "%02d" % time.day
     hour_str = "%02d" % time.hour
     minute_str = "%02d" % time.minute
     second_str = "%02d" % time.second
-    file_name_str = (cpol_grid_data_path + 
+
+    file_name_str = (data_path_cpol_cfradial + 
                      '/' +
-                     year_str +
-                     '/' + 
+                     year_str + 
                      month_str +
-                     '/' +
                      day_str +
                      '/' +  
-                     'cpol_' +
+                     'cfrad.' +
                      year_str +
                      month_str +
                      day_str +
+                     '_' +
                      hour_str +
                      minute_str +
-                     second_str +
-                     'nc')
-    radar = pyart.io.read_grid(file_name_str)
+                     '*.nc')
+    file_name = glob.glob(file_name_str)
+    print(file_name_str)
+    print(file_name)
+    radar = pyart.io.read(file_name[0])
     return radar
 
 # Get a Radar object given a time period in the CPOL dataset
@@ -684,6 +692,7 @@ def get_grid_from_cpol(time):
                      hour_str +
                      minute_str +
                      '.nc')
+    print(file_name_str)
     radar = pyart.io.read_grid(file_name_str)
     return radar
 
