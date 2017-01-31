@@ -10,7 +10,11 @@ def split_berrima_file(file_name):
     while string:
         while not b'/IMAGE' in string:
             string = rapic_file.readline()
+            if string == b'':
+                break
             print(string)
+        if string == b'':
+            break
         # Get start time and write to destination file
         date_string = string[13:26]
         year_string = date_string[0:2]
@@ -40,14 +44,19 @@ def split_berrima_file(file_name):
         out_rapic_file = open(out_file_name, 'wb+')
         out_rapic_file.write(string)
         while not b'/IMAGEEND' in string:
-            string = rapic_file.readline()
+            string = rapic_file.readline()          
+            if string == b'':
+                break
             out_rapic_file.write(string)
-        
+  
         out_rapic_file.close()
+        if string == b'':
+            break
         string = rapic_file.readline()
 
 # Loop over each file in directory
 file_list = glob.glob(in_dir + '*.rapic')
 print(file_list)
 for file_name in file_list:
+    print('Processing ')
     split_berrima_file(file_name)
