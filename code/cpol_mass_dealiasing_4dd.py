@@ -17,15 +17,15 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/home/rjackson/quicklook_plots/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2009
-start_month = 1
-start_day = 1
+start_year = 2010
+start_month = 3
+start_day = 26
 start_hour = 0
 start_minute = 1
 
-end_year = 2012
-end_month = 1
-end_day = 1
+end_year = 2010
+end_month = 3
+end_day = 27
 end_hour = 0
 end_minute = 2
 
@@ -107,145 +107,132 @@ def display_time(rad_date):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
 
-        out_file = ('Gunn_pt_' + 
-                    year_str +
-                    month_str +
-                    day_str + 
-                    hour_str + 
-                    minute_str + 
-                    second_str +
-                    '_PPI_deal.cf')
-    
-        if(not os.path.isfile(out_path + out_file)):
-            #try:
-                radar = time_procedures.get_radar_from_cpol_rapic(rad_time)
-                if(cpol_format == 1):
-                    ref_field = 'Refl'
-                    vel_field = 'Vel'
-                else:
-                    ref_field = 'reflectivity'
-                    vel_field = 'velocity'
+        try:  
+            radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
+            if(cpol_format == 1):
+                ref_field = 'Refl'
+                vel_field = 'Vel'
+            else:
+                ref_field = 'reflectivity'
+                vel_field = 'velocity'
 
-                # Get sounding for 4DD intialization
-                one_day_ago = rad_time-timedelta(days=1, minutes=1)
-                sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
-                                                                    one_day_ago.month,
-                                                                    one_day_ago.day,
-                                                                    one_day_ago.hour,
-                                                                    one_day_ago.minute,
-                                                                    rad_time.year,
-                                                                    rad_time.month,
-                                                                    rad_time.day,
-                                                                    rad_time.hour,
-                                                                    rad_time.minute,
-                                                                    minute_interval=60)
+            # Get sounding for 4DD intialization
+            one_day_ago = rad_time-timedelta(days=1, minutes=1)
+            sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
+                                                                one_day_ago.month,
+                                                                one_day_ago.day,
+                                                                one_day_ago.hour,
+                                                                one_day_ago.minute,
+                                                                rad_time.year,
+                                                                rad_time.month,
+                                                                rad_time.day,
+                                                                rad_time.hour,
+                                                                rad_time.minute,
+                                                                minute_interval=60)
              
-                sounding_time = sounding_times[len(sounding_times)-1]
-                Sounding_netcdf = time_procedures.get_sounding(sounding_time)
-
-                # Convert timestamps to datetime format
-                Time = Sounding_netcdf.variables['time_offset'][:]
-                base_time = Sounding_netcdf.variables['base_time'][:]
-                alt = Sounding_netcdf.variables['alt'][:]
-                u = Sounding_netcdf.variables['u_wind'][:]
-                v = Sounding_netcdf.variables['v_wind'][:]
-    
-                Sounding_netcdf.close()
-                steps = np.floor(len(u)/20)
-                wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
-                                                                             u[0::steps],
-                                                                             v[0::steps])
-                
-                ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
-                wind_profile.u = wind_profile.u_wind
-                wind_profile.v = wind_profile.v_wind
+            sounding_time = sounding_times[len(sounding_times)-1]
+            Sounding_netcdf = time_procedures.get_sounding(sounding_time)
+            # Convert timestamps to datetime format
+            Time = Sounding_netcdf.variables['time_offset'][:]
+            base_time = Sounding_netcdf.variables['base_time'][:]
+            alt = Sounding_netcdf.variables['alt'][:]
+            u = Sounding_netcdf.variables['u_wind'][:]
+            v = Sounding_netcdf.variables['v_wind'][:]
+            Sounding_netcdf.close()
+            steps = np.floor(len(u)/20)
+            wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
+                                                                         u[0::steps],
+                                                                         v[0::steps])
                
-                print(wind_profile)
-                # Dealias velocities
-                gatefilter = pyart.correct.despeckle.despeckle_field(radar,
-                                                                     vel_field)
-                gatefilter.exclude_below(ref_field, 0)
+            ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
+            wind_profile.u = wind_profile.u_wind
+            wind_profile.v = wind_profile.v_wind
+               
+            print(wind_profile)
+            # Dealias velocities
+            gatefilter = pyart.correct.despeckle.despeckle_field(radar,
+                                                                 vel_field)
+            gatefilter.exclude_below(ref_field, 0)
+                 
                 
-                
-                #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
-                #                                                            vel_field=vel_field,
-                #                                                            gatefilter=gatefilter,
-                #                                                            keep_original=False,
-                #                                                            centered=True,
-                #                                                            skip_between_rays=0,
-                #                                                            skip_along_ray=0,
-                #                                                            rays_wrap_around=True,
-                #                                                            valid_min=-75,
-                #                                                            valid_max=75)
-                try:
-                    corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
-                                                                          keep_original=False,
-                                                                          last_radar=last_Radar,
-                                                                          sign=-1,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          ba_mincount=5,
-                                                                          ) 
-                except:
-                    corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
-                                                                          keep_original=False,
-                                                                          sign=1,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          ba_mincount=5, 
-                                                                          ) 
-                radar.add_field_like(vel_field, 
-                                     'corrected_velocity', 
-                                     corrected_velocity_4dd['data'],
-                                     replace_existing=True)
+            #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
+            #                                                            vel_field=vel_field,
+            #                                                            gatefilter=gatefilter,
+            #                                                            keep_original=False,
+            #                                                            centered=True,
+            #                                                            skip_between_rays=0,
+            #                                                            skip_along_ray=0,
+            #                                                            rays_wrap_around=True,
+            #                                                            valid_min=-75,
+            #                                                            valid_max=75)
+            try:
+                corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                      vel_field=vel_field,
+                                                                      gatefilter=gatefilter,
+                                                                      keep_original=False,
+                                                                      last_radar=last_Radar,
+                                                                      sign=-1,
+                                                                      filt=1,
+                                                                      sonde_profile=wind_profile,
+                                                                      ba_mincount=5,
+                                                                      ) 
+            except:
+                corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                      vel_field=vel_field,
+                                                                      gatefilter=gatefilter,
+                                                                      keep_original=False,
+                                                                      sign=1,
+                                                                      filt=1,
+                                                                      sonde_profile=wind_profile,
+                                                                      ba_mincount=5, 
+                                                                      ) 
+            radar.add_field_like(vel_field, 
+                                 'corrected_velocity', 
+                                 corrected_velocity_4dd['data'],
+                                 replace_existing=True)
+  
+            # Save to Cf/Radial file
+            time_procedures.write_radar_to_cpol_cfradial(radar, rad_time)
+            last_Radar = radar
+            out_path = (out_file_path +
+                        '/' +
+                        year_str +
+                        '/' +
+                        month_str +
+                        '/' +
+                        day_str +
+                        '/')
+            if not os.path.exists(out_path):
+                os.makedirs(out_path)
+
+            out_file = hour_str + minute_str + '.png'
+            plt.figure(figsize=(7,14))
+            plt.subplot(211)
+            display = pyart.graph.RadarMapDisplay(radar)
+            display.plot_ppi(ref_field, 
+                             sweep=0, 
+                             cmap=pyart.graph.cm.NWSRef,
+                             vmin=0, 
+                             vmax=70)
+            plt.subplot(212)
+            display = pyart.graph.RadarMapDisplay(radar)
+            display.plot_ppi('corrected_velocity', 
+                             sweep=0,
+                             cmap=pyart.graph.cm.NWSVel,
+                             vmin=-30,
+                             vmax=30)
+            plt.savefig(out_path + out_file)
+            plt.close() 
+        except:
+            print('Skipping corrupt time' +
+                  year_str + 
+                  '-' +
+                  month_str + 
+                  ' ' + 
+                  hour_str + 
+                  ':' +
+                  minute_str)
  
-                # Save to Cf/Radial file
-                pyart.io.write_cfradial(out_path + out_file, radar)
-                last_Radar = radar
-                out_path = (out_file_path +
-                            '/' +
-                            year_str +
-                            '/' +
-	                    month_str +
-                            '/' +
-                            day_str +
-                            '/')
-                if not os.path.exists(out_path):
-                    os.makedirs(out_path)
-
-                out_file = hour_str + minute_str + '.png'
-                plt.figure(figsize=(7,14))
-                plt.subplot(211)
-
-                display = pyart.graph.RadarMapDisplay(radar)
-                display.plot_ppi(ref_field, 
-                                 sweep=0, 
-                                 cmap=pyart.graph.cm.NWSRef,
-	                         vmin=0, 
-                                 vmax=70)
-                plt.subplot(212)
-                display = pyart.graph.RadarMapDisplay(radar)
-                display.plot_ppi('corrected_velocity', 
-                                 sweep=0,
-	                         cmap=pyart.graph.cm.NWSVel,
-                                 vmin=-30,
-                                 vmax=30)
-                plt.savefig(out_path + out_file)
-                plt.close() 
-            #except:
-                print('Skipping corrupt time' +
-                      year_str + 
-                      '-' +
-                      month_str + 
-                      ' ' + 
-                      hour_str + 
-                      ':' +
-                      minute_str)
-
 times,dates = time_procedures.get_radar_times_cpol_rapic(start_year, 
                                                          start_month,
                                                          start_day,
@@ -259,44 +246,46 @@ times,dates = time_procedures.get_radar_times_cpol_rapic(start_year,
                                                          )
 print(dates)
 
-# Go through all of the scans
-#for rad_time in times:
-#    display_time(rad_time)
+serial = 1
+if(serial == 0):
+    # Go through all of the scans
+    #for rad_time in times:
+    #    display_time(rad_time)
 
-# Get iPython cluster
-state = 0
-while state == 0:
-    try:
-        My_Cluster = Client()
-        My_View = My_Cluster[:]
-        state = 1
-    except:
-        state = 0
-        print('Cluster not ready for me')
-        sleep(10)
+    # Get iPython cluster
+    state = 0
+    while state == 0:
+        try:
+            My_Cluster = Client()
+            My_View = My_Cluster[:]
+            state = 1
+        except:
+            state = 0
+            print('Cluster not ready for me')
+            sleep(10)
 
-#Turn off blocking so all engines can work async
-My_View.block = False
+    #Turn off blocking so all engines can work async
+    My_View.block = False
 
-#on all engines do an import of Py-ART
-My_View.execute('import matplotlib')
-My_View.execute('matplotlib.use("agg")')
-My_View.execute('import pyart')
-My_View.execute('import numpy as np')
-My_View.execute('import time_procedures')
-t1 = time.time()
+    #on all engines do an import of Py-ART
+    My_View.execute('import matplotlib')
+    My_View.execute('matplotlib.use("agg")')
+    My_View.execute('import pyart')
+    My_View.execute('import numpy as np')
+    My_View.execute('import time_procedures')
+    t1 = time.time()
 
-for rad_date in dates:
-    display_time(rad_date)
+    #Map the code and input to all workers
+    result = My_View.map_async(display_time, dates)
 
-#Map the code and input to all workers
-#result = My_View.map_async(display_time, dates)
-
-#Reduce the result to get a list of output
-qvps = result.get()
-tt = time.time() - t1
-print(tt)
-print(tt/len(times))
+    #Reduce the result to get a list of output
+    qvps = result.get()
+    tt = time.time() - t1
+    print(tt)
+    print(tt/len(times))
+else:
+    for date in dates:
+        display_time(date)
 
 
     
