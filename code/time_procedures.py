@@ -484,12 +484,12 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
                               '/' +
                               'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Gunn_Pt_v{:d}_UNKNOWN_SUR.nc')
             parameters = parse(new_format_str, file_name)
-            year_str = np.floor(parameters[0]/10000)
-            month_str = np.floor((parameters[0]-year_str*10000)/100)
-            day_str = np.floor(parameters[0]-year_str*10000-month_str*100)
-            hour_str = np.floor(parameters[2]/10000)
-            minute_str = np.floor((parameters[2]-hour_str*10000)/100)
-            second_str = np.floor(parameters[2]-hour_str*10000-minute_str*100)    
+            year_str = np.floor(parameters[2]/10000)
+            month_str = np.floor((parameters[2]-year_str*10000)/100)
+            day_str = np.floor(parameters[2]-year_str*10000-month_str*100)
+            hour_str = np.floor(parameters[3]/10000)
+            minute_str = np.floor((parameters[3]-hour_str*10000)/100)
+            second_str = np.floor(parameters[3]-hour_str*10000-minute_str*100)    
         else:
             date_str = file_name[-17:-3]
             year_str = date_str[0:4]
@@ -498,8 +498,8 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
             hour_str = date_str[8:10]
             minute_str = date_str[10:12]
             day_str = date_str[12:14]
-            
-      
+        print(parameters)    
+        print(year_str)
         cur_time = datetime(int(year_str),
                             int(month_str),
                             int(day_str),
