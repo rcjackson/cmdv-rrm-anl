@@ -10,14 +10,14 @@ from copy import deepcopy
 
 data_path_berr = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 sounding_file = '/home/rjackson/data/soundings/twpsondewnpnC3.b1.20020401.043300..20091230.172000.custom.cdf'
-out_data_path = '/home/rjackson/multidop_grids/'
-cpol_grid_data_path = '/home/rjackson/data/radar/grids/'
-data_path_sounding = '/home/rjackson/data/soundings/'
+out_data_path = '/lcrc/group/earthscience/rjackson/multidop_grids/'
+cpol_grid_data_path = '/lcrc/group/earthscience/rjackson/grids/'
+data_path_sounding = '/lcrc/group/earthscience/rjackson/soundings/'
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-data_path_cpol_cfradial = '/home/rjackson/data/radar/cpol/'
-data_path_berr_cfradial = '/home/rjackson/data/radar/berr/'
-out_file_path = '/home/rjackson/quicklook_plots/'
+data_path_cpol_cfradial = '/lcrc/group/earthscience/rjackson/cpol/'
+data_path_berr_cfradial = '/lcrc/group/earthscience/rjackson/berr/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_berr(time):
@@ -432,6 +432,7 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
  
     file_list = []
     time_list = []
+    date_list_final = []
     for i in days:
         year_str = "%04d" % cur_time.year
         day_str = "%02d" % cur_time.day
@@ -464,10 +465,14 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
                           month_str +
                           day_str +
                           '*.nc')
-       
+        
         print('Looking for files with format ' + format_str)      
         data_list = glob.glob(format_str)
         
+        if(len(data_list) > 0):
+            day = datetime(cur_time.year, cur_time.month, cur_time.day, 0, 0, 1)
+            date_list_final.append(day)
+ 
         for j in range(0, len(data_list)):
             file_list.append(data_list[j])
         cur_time = cur_time + timedelta(days=1)
@@ -527,7 +532,7 @@ def get_radar_times_cpol_cfradial(start_year, start_month, start_day,
             time_list_final.append(cur_time)
             past_time = cur_time
                    
-    return time_list_final
+    return time_list_final, date_list_final
 
 # get_radar_times_cpol
 #     start_year = Start year of animation
