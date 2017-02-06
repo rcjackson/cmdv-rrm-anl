@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use('agg')
 import pyart
 import glob
+import fnmatch
 import os
 import time
 from datetime import datetime
@@ -13,55 +14,69 @@ from ipyparallel import Client
 from time import sleep
 
 data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_lassen/'
-out_file_path = '/home/rjackson/data/radar/cpol/'
+out_file_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
-# Get list of radar files (recursively)
-file_list = glob.glob(data_file_path + '/**/*_PPI.lassen', recursive=True)
+list_file = open('list_of_files0405')
+
+# Get list of radar files (recursively) (Python 2.7)
+file_list = list_file.readlines() 
+list_file.close()
+
+# Python 3.5 only (uncomment if using)
+#file_list = glob.glob(data_file_path + '/**/*_PPI.lassen', recursive=True)
 print('Converting ' + str(len(file_list)) + ' files to Cf/Radial')
-
+print(file_list[1])
 # Convert each radar file
 def convert_file(radar_file):
     import os
     from parse import parse
-    out_file_path = '/home/rjackson/data/radar/cpol'
-    print('Reading ' + radar_file)
-    Radar = pyart.io.read_rsl(radar_file)
-    Radar.info()
-    time_string = Radar.time['units']
-    parse_string = 'seconds since {:ti}'
-    radar_datetime = parse(parse_string, time_string)
-    radar_datetime = radar_datetime[0]
-
-    year_str = "%04d" % radar_datetime.year 
-    month_str = "%02d" % radar_datetime.month
-    day_str = "%02d" % radar_datetime.day
-    hour_str = "%02d" % radar_datetime.hour
-    minute_str = "%02d" % radar_datetime.minute
-    second_str = "%02d" % radar_datetime.second
-    out_file_path_this = (out_file_path +
-                          '/' + 
-                          year_str +
-                          '/' + 
-                          year_str +
-                          month_str + 
-                          day_str +
-                          '/')
-
-    if(not os.path.exists(out_file_path_this)):
-        os.makedirs(out_file_path_this)
+    out_file_path = '/lcrc/group/earthscience/rjackson/cpol/'
     
-    out_file_name = (out_file_path_this +
-                     'Gunn_pt_' +
-                     year_str +
-                     month_str +
-                     day_str +
-                     hour_str +
-                     minute_str +
-                     second_str +
-                     '.nc')
-    print('Writing ' + out_file_name)
-    pyart.io.write_cfradial(out_file_name, Radar)
+    print('Reading ' + radar_file)
+    try:
+        Radar = pyart.io.read_rsl(radar_file)
+        time_string = Radar.time['units']
+        parse_string = 'seconds since {:ti}'
+        radar_datetime = parse(parse_string, time_string)
+        radar_datetime = radar_datetime[0]
 
+        year_str = "%04d" % radar_datetime.year 
+        month_str = "%02d" % radar_datetime.month
+        day_str = "%02d" % radar_datetime.day
+        hour_str = "%02d" % radar_datetime.hour
+        minute_str = "%02d" % radar_datetime.minute
+        second_str = "%02d" % radar_datetime.second
+      
+        out_file_path_this = (out_file_path +
+                              '/' +
+                              year_str +
+                              '/' +
+                              year_str +
+                              month_str +
+                              day_str +
+                              '/')
+
+        out_file_name = (out_file_path_this +
+                        'Gunn_pt_' +
+                         year_str +
+                         month_str +
+                         day_str +
+                         hour_str +
+                         minute_str +
+                         second_str +
+                         Radar.scan_type +
+                         '.nc')
+
+        if(not os.path.isfile(out_file_name)):
+            if(not os.path.exists(out_file_path_this)):
+                os.makedirs(out_file_path_this)
+    
+            print('Writing ' + out_file_name)
+            pyart.io.write_cfradial(out_file_name, Radar)
+        else:
+            print('Skipping ' + radar_file + ', converted output already exists.')
+    except:
+        print('Skipping ' + radar_file + ' cannot be read by RSL.')
 
 serial = 0
 
@@ -91,9 +106,41 @@ if(serial == 0):
 
     #for rad_date in dates:
     #    display_time(rad_date)
+    print('Checking for already converted files...')
+    file_list1 = []
+    for file_name in file_list:
+        date_str = file_name[-26:-12]
+        year_str = date_str[0:4]
+        month_str = date_str[4:6]
+        day_str = date_str[6:8]
+        hour_str = date_str[8:10]
+        minute_str = date_str[10:12]
+        second_str = date_str[12:14]
+       
+        out_file_path_this = (out_file_path +
+                              '/' +
+                              year_str +
+                              '/' +
+                              year_str +
+                              month_str +
+                              day_str +
+                              '/')
 
+        out_file_name = (out_file_path_this +
+                         'Gunn_pt_' +
+                          year_str +
+                          month_str +
+                          day_str +
+                          hour_str +
+                          minute_str +
+                          second_str +
+                         'ppi.nc')
+        if(not os.path.isfile(out_file_name)):
+            file_list1.append(file_name[:-1])
+
+    print('Starting conversion...')
     #Map the code and input to all workers
-    result = My_View.map_async(convert_file, file_list)
+    result = My_View.map_async(convert_file, file_list1)
 
     #Reduce the result to get a list of output
     qvps = result.get()
@@ -102,7 +149,36 @@ if(serial == 0):
     print(tt/len(times))
 else:
     for file_name in file_list:
-        convert_file(file_name)
+        date_str = file_name[-26:-12]
+        year_str = date_str[0:4]
+        month_str = date_str[4:6]
+        day_str = date_str[6:8]
+        hour_str = date_str[8:10]
+        minute_str = date_str[10:12]
+        second_str = date_str[12:14]
+       
+        out_file_path_this = (out_file_path +
+                              '/' +
+                              year_str +
+                              '/' +
+                              year_str +
+                              month_str +
+                              day_str +
+                              '/')
+
+        out_file_name = (out_file_path_this +
+                         'Gunn_pt_' +
+                          year_str +
+                          month_str +
+                          day_str +
+                          hour_str +
+                          minute_str +
+                          second_str +
+                         'ppi.nc')
+        if(not os.path.isfile(out_file_name)):
+            convert_file(file_name[:-1])
+        else:
+            print('Skipping ' + year_str + '-' + day_str + '-' + month_str)
 
 
 

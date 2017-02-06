@@ -11,20 +11,54 @@ from time import sleep
 import time
 import time_procedures
 from netCDF4 import Dataset
+from datetime import timedelta, datetime
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 3
-start_day = 26
+start_year = 2009
+start_month = 11
+start_day = 1
 start_hour = 0
 start_minute = 1
 
-end_year = 2010
-end_month = 3
-end_day = 27
+end_year = 2011
+end_month = 6
+end_day = 1
 end_hour = 1
 end_minute = 2
 
+# Get all 10 minute steps between start time and end time
+def get_all_10min_time_periods(start_year, 
+                               start_month,
+                               start_day,
+                               start_hour, 
+                               start_minute,
+                               end_year, 
+                               end_month,
+                               end_day,
+                               end_hour, 
+                               end_minute):
+    
+    start_time = datetime(year=start_year,
+                          month=start_month,
+                          day=start_day,
+                          hour=start_hour,
+                          minute=start_minute)
+  
+    end_time = datetime(year=end_year,
+                        month=end_month,
+                        day=end_day,
+                        hour=end_hour,
+                        minute=end_minute)
+    
+    times = []
+    cur_time = start_time
+    while(cur_time < end_time):
+        times.append(cur_time)
+        cur_time = cur_time + timedelta(minutes=10)
+    
+    return times
+                          
+    
 def SCP(rad_time):
     import pyart
     import matplotlib
@@ -41,8 +75,8 @@ def SCP(rad_time):
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/home/rjackson/quicklook_plots/'
-    out_data_path = '/home/rjackson/data/radar/grids/'
+    out_file_path = '/lcrc/group/earthscience/radar/quicklook_plots/'
+    out_data_path = '/lcrc/group/earthscience/data/radar/grids/'
 
     # CPOL in lassen or rapic?
     cpol_format = 1    # 0 = lassen, 1 = rapic
@@ -67,39 +101,41 @@ def SCP(rad_time):
     SCP30 = np.ma.zeros(grid_shape[0],)
     SCP40 = np.ma.zeros(grid_shape[0],)
     total_points = grid_shape[1]*grid_shape[2]
-
+    print(total_points)
     # Derive statistical coverage product
     for levels in range(0,grid_shape[0]):
         array = np.where(reflectivity[levels] > 0)
         numgt0 = len(array[0])
-        SCP0[levels] = numgt0/total_points*100
+        SCP0[levels] = float(numgt0)/float(total_points)*100
         array = np.where(reflectivity[levels] > 10)
         numgt10 = len(array[0])
-        SCP10[levels] = numgt10/total_points*100
+        SCP10[levels] = float(numgt10)/float(total_points)*100
         array = np.where(reflectivity[levels] > 20)
         numgt20 = len(array[0])
-        SCP20[levels] = numgt20/total_points*100     
+        SCP20[levels] = float(numgt20)/float(total_points)*100     
         array = np.where(reflectivity[levels] > 30)
         numgt30 = len(array[0])
-        SCP30[levels] = numgt30/total_points*100    
+        SCP30[levels] = float(numgt30)/float(total_points)*100    
         array = np.where(reflectivity[levels] > 40)
         numgt40 = len(array[0])
-        SCP40[levels] = numgt40/total_points*100
-       
-    return SCP0, SCP10, SCP20, SCP30, SCP40
-  
-times = time_procedures.get_grid_times_cpol(start_year, 
-                                            start_month,
-                                            start_day,
-                                            start_hour, 
-                                            start_minute,
-                                            end_year, 
-                                            end_month,
-                                            end_day,
-                                            end_hour, 
-                                            end_minute,
-                                           )
+        SCP40[levels] = float(numgt40)/float(total_points)*100
+        
+    max_ref = np.max(reflectivity)   
+    
+    return SCP0, SCP10, SCP20, SCP30, SCP40, max_ref
 
+
+all_times = get_all_10min_time_periods(start_year, 
+                                       start_month,
+                                       start_day,
+                                       start_hour, 
+                                       start_minute,
+                                       end_year, 
+                                       end_month,
+                                       end_day,
+                                       end_hour, 
+                                       end_minute,
+                                       )
 
 # Go through all of the scans
 #for rad_time in times:
@@ -129,37 +165,86 @@ times = time_procedures.get_grid_times_cpol(start_year,
 #t1 = time.time()
 num_levels = 40
 vert_levels = np.arange(0.5, 20.5, 0.5)
-SCP0 = np.zeros((len(times), num_levels))
-SCP10 = np.zeros((len(times), num_levels))
-SCP20 = np.zeros((len(times), num_levels))
-SCP30 = np.zeros((len(times), num_levels))
-SCP40 = np.zeros((len(times), num_levels))
+SCP0 = np.ma.zeros((len(all_times), num_levels))
+SCP10 = np.ma.zeros((len(all_times), num_levels))
+SCP20 = np.ma.zeros((len(all_times), num_levels))
+SCP30 = np.ma.zeros((len(all_times), num_levels))
+SCP40 = np.ma.zeros((len(all_times), num_levels))
 i = 0
-years_array = np.zeros(len(times))
-months_array = np.zeros(len(times))
-days_array = np.zeros(len(times))
-hours_array = np.zeros(len(times))
-minutes_array = np.zeros(len(times))
-seconds_array = np.zeros(len(times))
+years_array = np.ma.zeros(len(all_times))
+months_array = np.ma.zeros(len(all_times))
+days_array = np.ma.zeros(len(all_times))
+hours_array = np.ma.zeros(len(all_times))
+minutes_array = np.ma.zeros(len(all_times))
+seconds_array = np.ma.zeros(len(all_times))
+max_ref = np.ma.zeros(len(all_times))
+for timer in all_times:
+    # Find times in CPOL data record
+    five_minutes_later = timer+timedelta(minutes=5)
+    five_minutes_earlier = timer-timedelta(minutes=5)
+    times = time_procedures.get_grid_times_cpol(five_minutes_earlier.year, 
+                                                five_minutes_earlier.month,
+                                                five_minutes_earlier.day,
+                                                five_minutes_earlier.hour, 
+                                                five_minutes_earlier.minute,
+                                                five_minutes_later.year, 
+                                                five_minutes_later.month,
+                                                five_minutes_later.day,
+                                                five_minutes_later.hour, 
+                                                five_minutes_later.minute,
+                                                )
+    if(len(times) > 0):
+        SCP0[i,:], SCP10[i,:], SCP20[i,:], SCP30[i,:], SCP40[i,:], max_ref[i] = SCP(times[0])
+        years_array[i] = timer.year
+        months_array[i] = timer.month
+        days_array[i] = timer.day
+        hours_array[i] = timer.hour
+        seconds_array[i] = timer.second
+    else:
+        year_str = "%04d" % timer.year
+        month_str = "%02d" % timer.month
+        day_str = "%02d" % timer.day
+        hour_str = "%02d" % timer.hour
+        minute_str = "%02d" % timer.minute
+        second_str = "%02d" % timer.second
 
-for timer in times:
-    SCP0[i,:], SCP10[i,:], SCP20[i,:], SCP30[i,:], SCP40[i,:] = SCP(timer)
-    years_array[i] = timer.year
-    months_array[i] = timer.month
-    days_array[i] = timer.day
-    hours_array[i] = timer.hour
-    seconds_array[i] = timer.second
-    i = i + 1
-
+        print('Masking ' + 
+              year_str + 
+              '-' +
+              month_str +
+              '-' +
+              day_str +
+              ' ' + 
+              hour_str +
+              ':' +
+              minute_str +
+              ':' +
+              second_str)
+        SCP0[i,:].mask = True
+        SCP10[i,:].mask = True
+        SCP20[i,:].mask = True
+        SCP30[i,:].mask = True
+        SCP40[i,:].mask = True
+        years_array[i] = timer.year
+        months_array[i] = timer.month
+        days_array[i] = timer.day
+        hours_array[i] = timer.hour
+        seconds_array[i] = timer.second
+        max_ref[i] = float('nan')
+    i = i + 1   
 # Output results into netCDF file
 out_netcdf = Dataset('SCP.cdf', mode='w')
-out_netcdf.createDimension('time', len(times))
+out_netcdf.createDimension('time', len(all_times))
 out_netcdf.createDimension('levels', num_levels)
 
 levels_file = out_netcdf.createVariable('levels', 'f8', ('levels',))
 levels_file.long_name = 'Height in km'
 levels_file.units = 'km'
 levels_file[:] = vert_levels
+
+print(SCP0.shape)
+print(num_levels)
+print(len(all_times))
 
 SCP0_file = out_netcdf.createVariable('SCP0', 'f8', ('time','levels'))
 SCP0_file.long_name = '% of level > 0 dBZ'
@@ -185,6 +270,11 @@ SCP40_file = out_netcdf.createVariable('SCP40', 'f8', ('time','levels'))
 SCP40_file.long_name = '% of level > 40 dBZ'
 SCP40_file.units = '%'
 SCP40_file[:,:] = SCP40
+
+maxz = out_netcdf.createVariable('maxz', 'i4', ('time',))
+maxz.long_name = 'Year'
+maxz.units = 'YYYY'
+maxz[:] = max_ref
 
 years = out_netcdf.createVariable('years', 'i4', ('time',))
 years.long_name = 'Year'
