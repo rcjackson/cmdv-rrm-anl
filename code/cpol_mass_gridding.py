@@ -14,19 +14,19 @@ import time_procedures
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/home/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 11
-start_day = 26
+start_year = 2006
+start_month = 1
+start_day = 19
 start_hour = 0
 start_minute = 1
 
-end_year = 2010
-end_month = 11
-end_day = 27
-end_hour = 0
+end_year = 2006
+end_month = 2
+end_day = 10
+end_hour = 1
 end_minute = 2
 
 def grid_time(rad_time):
@@ -45,8 +45,8 @@ def grid_time(rad_time):
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/home/rjackson/quicklook_plots/'
-    out_data_path = '/home/rjackson/data/radar/grids/'
+    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+    out_data_path = '/lcrc/group/earthscience/rjackson/data/radar/grids/'
 
     # CPOL in lassen or rapic?
     cpol_format = 1    # 0 = lassen, 1 = rapic
@@ -67,7 +67,10 @@ def grid_time(rad_time):
                 day_str +
 	        '/')
     if not os.path.exists(out_path):
-        os.makedirs(out_path)
+        try:
+            os.makedirs(out_path)
+        except:
+            print(out_path + ' directory already exists!')
 
     cpol_grid_name = (out_path + 'cpol_' 
                                + year_str 
@@ -79,7 +82,10 @@ def grid_time(rad_time):
     if(not os.path.isfile(cpol_grid_name)):
         #try:
             Radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
-            if(cpol_format == 1):
+            # Skip single sweep scans
+            if(Radar.nsweeps == 1):
+                return
+            if(rad_time.year > 2007):
                 ref_field = 'Refl'
                 vel_field = 'Vel'
             else:
@@ -94,17 +100,42 @@ def grid_time(rad_time):
                                                             ref_field, 
                                                             size=6)
             nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
+            try:
+                data = ndimage.filters.generic_filter(Radar.fields['Vel']['data'],
+                                                      pyart.util.interval_std, size = (3,3),
+                                                      extra_arguments = (-nyq_Gunn, nyq_Gunn))
+                filtered_data = ndimage.filters.median_filter(data, size = (3,3))
+                texture_field = pyart.config.get_metadata('Vel')
+                texture_field['data'] = filtered_data
+                Radar.add_field('velocity_texture', texture_field, replace_existing = True)
             
-            data = ndimage.filters.generic_filter(Radar.fields['corrected_velocity']['data'],
-                                                  pyart.util.interval_std, size = (4,4),
-                                                  extra_arguments = (-nyq_Gunn, nyq_Gunn))
-            filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-            texture_field = pyart.config.get_metadata('corrected_velocity')
-            texture_field['data'] = filtered_data
-            Radar.add_field('velocity_texture', texture_field, replace_existing = True)
-
-            gatefilter_Gunn.exclude_above('velocity_texture', 4)
-            gatefilter_Gunn.exclude_below(ref_field, 1)
+                gatefilter = pyart.correct.GateFilter(Radar)
+                gatefilter.exclude_below('Refl', 0)
+                gatefilter.exclude_below('velocity_texture', 3)
+                gatefilter = pyart.correct.despeckle.despeckle_field(Radar,
+                                                                     ref_field,
+                                                                     size=6,
+                                                                     gatefilter=gatefilter)
+            except:
+                try:
+                    data = ndimage.filters.generic_filter(Radar.fields['velocity']['data'],
+                                                          pyart.util.interval_std, size = (3,3),
+                                                          extra_arguments = (-nyq_Gunn, nyq_Gunn))
+                    filtered_data = ndimage.filters.median_filter(data, size = (3,3))
+                    texture_field = pyart.config.get_metadata('velocity')
+                    texture_field['data'] = filtered_data
+                    Radar.add_field('velocity_texture', texture_field, replace_existing = True)
+            
+                    gatefilter = pyart.correct.GateFilter(Radar)
+                    gatefilter.exclude_below('reflectivity', 0)
+                    gatefilter.exclude_below('velocity_texture', 3)
+                    gatefilter = pyart.correct.despeckle.despeckle_field(Radar,
+                                                                         ref_field,
+                                                                         size=6,
+                                                                         gatefilter=gatefilter)
+                except:
+                    print('Unrecognized reflectivity/velocity field names! Skipping...')
+                    return
 
             # Change variable names to DT (reflectivity) and VT (velocity) expected by multidop
             # If you needed to dealias or perform other corrections,
@@ -113,12 +144,12 @@ def grid_time(rad_time):
             cp = deepcopy(Radar.fields[ref_field]['data'])
             #texture = Radar.fields['velocity_texture']['data']
             Radar.add_field_like(ref_field, 'DT', cp, replace_existing=True)
-            cp = deepcopy(Radar.fields['corrected_velocity']['data'])
-            Radar.add_field_like('corrected_velocity', 'VT', cp, replace_existing=True)
+            #cp = deepcopy(Radar.fields['corrected_velocity']['data'])
+            #Radar.add_field_like('corrected_velocity', 'VT', cp, replace_existing=True)
               
             # The analysis engine currently expects the "missing_value" attribute
             Radar.fields['DT']['missing_value'] = 1.0 * Radar.fields['DT']['_FillValue']
-            Radar.fields['VT']['missing_value'] = 1.0 * Radar.fields['VT']['_FillValue']
+            #Radar.fields['VT']['missing_value'] = 1.0 * Radar.fields['VT']['_FillValue']
 
             # Grid the data to a Cartesian grid. The Dual doppler domain does not extend ~60 km 
             # from both radars, so no need to store more data than that. 
@@ -127,7 +158,7 @@ def grid_time(rad_time):
                                                    Radar.longitude['data'][0]),
                                                    xlim=(-60000, 50000), 
                                                    ylim=(-50000, 30000), 
-                                                   fields=['DT', 'VT'], 
+                                                   fields=['DT'], 
                                                    min_radius=750.0, 
                                                    bsp=1.0, nb=1.5,
                                                    h_factor=3.0, 
@@ -144,30 +175,31 @@ def grid_time(rad_time):
             pyart.io.write_grid(cpol_grid_name, grid_cpol)              
             
         #except:
-            print('Skipping corrupt time' +
-                  year_str + 
-                  '-' +
-                  month_str + 
-                  ' ' + 
-                  hour_str + 
-                  ':' +
-                  minute_str)
+        #    print('Skipping corrupt time' +
+        #          year_str + 
+        #          '-' +
+        #          month_str + 
+        #          ' ' + 
+        #          hour_str + 
+        #          ':' +
+        #          minute_str)
 
-times = time_procedures.get_radar_times_cpol_cfradial(start_year, 
-                                                      start_month,
-                                                      start_day,
-                                                      start_hour, 
-                                                      start_minute,
-                                                      end_year, 
-                                                      end_month,
-                                                      end_day,
-                                                      end_hour, 
-                                                      end_minute,
-                                                      )
+times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
+                                                            start_month,
+                                                            start_day,
+                                                            start_hour, 
+                                                            start_minute,
+                                                            end_year, 
+                                                            end_month,
+                                                            end_day,
+                                                            end_hour, 
+                                                            end_minute,
+                                                            )
 
+print(times)
 # Go through all of the scans
 #for rad_time in times:
-#    display_time(rad_time)
+#    grid_time(rad_time)
 
 # Get iPython cluster
 state = 0
