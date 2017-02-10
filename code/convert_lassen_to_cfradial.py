@@ -16,7 +16,7 @@ from time import sleep
 data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_lassen/'
 out_file_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
-list_file = open('list_of_files0405')
+list_file = open('list_of_files0203')
 
 # Get list of radar files (recursively) (Python 2.7)
 file_list = list_file.readlines() 
@@ -78,7 +78,7 @@ def convert_file(radar_file):
     except:
         print('Skipping ' + radar_file + ' cannot be read by RSL.')
 
-serial = 0
+serial = 1
 
 if(serial == 0):
     # Get iPython cluster
@@ -109,13 +109,25 @@ if(serial == 0):
     print('Checking for already converted files...')
     file_list1 = []
     for file_name in file_list:
-        date_str = file_name[-26:-12]
-        year_str = date_str[0:4]
-        month_str = date_str[4:6]
-        day_str = date_str[6:8]
-        hour_str = date_str[8:10]
-        minute_str = date_str[10:12]
-        second_str = date_str[12:14]
+        print(file_name[-4:])
+        if(file_name[-4:] == 'vol'):
+            hex_timestamp = file_name[-13:-5]
+            print(hex_timestamp)
+            time_stamp = datetime.utcfromtimestamp(float(int(hex_timestamp, 16)))     
+            year_str = "%04d" % time_stamp.year
+            month_str = "%02d" % time_stamp.month
+            day_str = "%02d" % time_stamp.day
+            hour_str = "%02d" % time_stamp.hour
+            minute_str = "%02d" % time_stamp.minute
+            second_str = "%02d" % time_stamp.second
+        else:
+            date_str = file_name[-26:-12]
+            year_str = date_str[0:4]
+            month_str = date_str[4:6]
+            day_str = date_str[6:8]
+            hour_str = date_str[8:10]
+            minute_str = date_str[10:12]
+            second_str = date_str[12:14]
        
         out_file_path_this = (out_file_path +
                               '/' +
@@ -149,13 +161,24 @@ if(serial == 0):
     print(tt/len(times))
 else:
     for file_name in file_list:
-        date_str = file_name[-26:-12]
-        year_str = date_str[0:4]
-        month_str = date_str[4:6]
-        day_str = date_str[6:8]
-        hour_str = date_str[8:10]
-        minute_str = date_str[10:12]
-        second_str = date_str[12:14]
+        if(file_name[-4:-1] == 'vol'):
+            hex_timestamp = file_name[-13:-5]
+            print(hex_timestamp)
+            time_stamp = datetime.utcfromtimestamp(float(int(hex_timestamp, 16)))     
+            year_str = "%04d" % time_stamp.year
+            month_str = "%02d" % time_stamp.month
+            day_str = "%02d" % time_stamp.day
+            hour_str = "%02d" % time_stamp.hour
+            minute_str = "%02d" % time_stamp.minute
+            second_str = "%02d" % time_stamp.second
+        else:
+            date_str = file_name[-26:-12]
+            year_str = date_str[0:4]
+            month_str = date_str[4:6]
+            day_str = date_str[6:8]
+            hour_str = date_str[8:10]
+            minute_str = date_str[10:12]
+            second_str = date_str[12:14]
        
         out_file_path_this = (out_file_path +
                               '/' +
@@ -175,6 +198,7 @@ else:
                           minute_str +
                           second_str +
                          'ppi.nc')
+        
         if(not os.path.isfile(out_file_name)):
             convert_file(file_name[:-1])
         else:
