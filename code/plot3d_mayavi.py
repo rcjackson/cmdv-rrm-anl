@@ -9,9 +9,10 @@ from scipy.interpolate import griddata
 from mayavi import mlab
 from datetime import datetime, timedelta
 from copy import deepcopy
+from matplotlib import animation
 import glob
 
-data_path = "C:\\Users\\rjackson\\Documents\\multidop_grids\\ddop\\"
+data_path = "/home/rjackson/multidop_grids/"
 
 start_year = 2006
 start_day = 19
@@ -175,8 +176,8 @@ def get_bca(x,y):
     theta_1 = np.arccos(x/a)
     theta_2 = np.arccos((x-berr_origin[1])/b)
     return np.arccos((a*a+b*b-c*c)/(2*a*b))
-    
-def anim(time):   
+   
+def anims(time):   
     nc = get_grid_from_dda(time)
     ref = nc.variables['reflectivity'][:]
     u = nc.variables['eastward_wind'][:]
@@ -228,7 +229,7 @@ def anim(time):
                            (grid_x/1e3,grid_y/1e3,grid_z/1e3))
 
     #mlab.options.offscreen = True
-    f=mlab.figure(bgcolor=(0,0,0), size=(3750,2000))
+    f = mlab.figure(bgcolor=(0,0,0), size=(1500, 1500))
     q = mlab.quiver3d(grid_xm, 
                       grid_ym, 
                       grid_zm, 
@@ -236,7 +237,7 @@ def anim(time):
                       vm, 
                       wm,
                       extent=[-40, 40, -30, 30, 0, 20])
-
+    
     colorbar = mlab.colorbar(q, title='m/s', orientation='vertical')
     colorbar.label_text_property.font_size = 5
     #mlab.flow(np.transpose(grid_x)/1e3, 
@@ -249,8 +250,8 @@ def anim(time):
     mlab.contour3d(np.transpose(grid_x)/1e3, 
                    np.transpose(grid_y)/1e3, 
                    np.transpose(grid_z)/1e3, 
-                   np.transpose(refm_gridded), colormap='blue-red',
-                   contours=[10, 30], opacity=0.5,
+                   np.transpose(wm_gridded), colormap='blue-red',
+                   contours=[-4, 4], opacity=0.5,
                    extent=[-40, 40, -30, 30, 0, 20])
     mlab.view(azimuth=72.608457142284237,
               elevation=73.373132558239334, 
@@ -271,6 +272,7 @@ def anim(time):
     xlabel.label_text_property.font_size = 5
     ylabel.label_text_property.font_size = 5
     zlabel.label_text_property.font_size = 5
+    
     mlab.show()
     #mlab.savefig('plot3d_fig' +
     #             str(time.month) +
@@ -280,11 +282,14 @@ def anim(time):
     #             size=(3000,2000))
     #mlab.close(f)
     
+
+
 times = get_dda_times(start_year, start_month, start_day,
                       start_hour, start_minute, end_year,
                       end_month, end_day, end_hour, 
                       end_minute, minute_interval=0)
 
 for time in times:
-    anim(time)
+    anims(time)
+        
 #anim(times[1])
