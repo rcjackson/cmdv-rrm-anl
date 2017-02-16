@@ -616,16 +616,24 @@ def get_radar_times_berr_cfradial(start_year, start_month, start_day,
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
     for file_name in file_list:
-        new_format_str = (data_path_berr_cfradial +
-                         '/' +
-                         '{:d}' +
-                         '/' +
-                         '{:d}' +
-                         '/' +
-                         'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berrima_v{:d}_UNKNOWN_SUR.nc')
+        if(file_name[-13:] == 'el0.50_SUR.nc'):
+            new_format_str = (data_path_berr_cfradial +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berr_v{:d}_s{:d}_el0.50_SUR.nc')
+        else:
+            new_format_str = (data_path_berr_cfradial +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berrima_v{:d}_UNKNOWN_SUR.nc')
         
         parameters = parse(new_format_str, file_name)
-        
         year_str = np.floor(parameters[2]/10000)
         month_str = np.floor((parameters[2]-year_str*10000)/100)
         day_str = np.floor(parameters[2]-year_str*10000-month_str*100)
