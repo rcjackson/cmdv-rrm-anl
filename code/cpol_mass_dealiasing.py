@@ -14,18 +14,18 @@ import time_procedures
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
+start_year = 2011
 start_month = 1
-start_day = 7
+start_day = 1
 start_hour = 0
 start_minute = 1
 
-end_year = 2010
+end_year = 2011
 end_month = 1
-end_day = 8
+end_day = 15
 end_hour = 0
 end_minute = 2
 
@@ -164,10 +164,12 @@ def display_time(rad_time):
     import os
     from datetime import timedelta
     from scipy import ndimage
+    from scipy.stats import gaussian_kde
+    from scipy.signal import argrelextrema
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
+    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
     out_data_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
     # CPOL in lassen or rapic?
@@ -179,7 +181,13 @@ def display_time(rad_time):
     hour_str = "%02d" % rad_time.hour
     minute_str = "%02d" % rad_time.minute
     second_str = "%02d" % rad_time.second
-    
+    def kde_scipy(x, x_grid, bandwidth=0.2, **kwargs):
+        """Kernel Density Estimation with Scipy"""
+        # Note that scipy weights its bandwidth by the covariance of the
+        # input data.  To make the results comparable to the other methods,
+        # we divide the bandwidth by the sample standard deviation here.
+        kde = gaussian_kde(x, bw_method=bandwidth / x.std(ddof=1), **kwargs)
+        return kde.evaluate(x_grid)
    
     try:
         radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
@@ -232,7 +240,7 @@ def display_time(rad_time):
         #texture_field['data'] = filtered_data
         #radar.add_field('velocity_texture', texture_field, replace_existing = True)
         # Dealias velocities
-        gatefilter = pyart.correct.GateFilter(radar)
+        #gatefilter = pyart.correct.GateFilter(radar)
         #gatefilter.exclude_below(ref_field, 0)
         #gatefilter.exclude_below('velocity_texture', 4)
         #gatefilter = pyart.correct.despeckle.despeckle_field(radar,
@@ -246,35 +254,72 @@ def display_time(rad_time):
 	    
         corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                                                                     vel_field=vel_field,
-                                                                    gatefilter=gatefilter,
                                                                     keep_original=False,
 	                                                            centered=True,
 	                                                            interval_splits=3,
-	                                                            skip_between_rays=100,
-	                                                            skip_along_ray=100,
+	                                                            skip_between_rays=0,
+	                                                            skip_along_ray=0,
 	                                                            rays_wrap_around=True,
 	                                                            valid_min=-75,
 	                                                            valid_max=75)
+        
+
+        # Filter out regions based on deviation from sounding field to remove missed folds                                                         
+        corr_vel = corrected_velocity_4dd['data']
+        sim_velocity = radar.fields['sim_velocity']['data']
+        diff = corr_vel - radar.fields['sim_velocity']['data']
+        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])                
+        X = diff[diff > -100]
+        X = X.flatten()
+        x_grid = np.linspace(-5, 5, 100)
+        pdf = kde_scipy(X, x_grid, bandwidth=0.05)
+        minima = argrelextrema(pdf, np.less)
         radar.add_field_like(vel_field, 
                              'corrected_velocity', 
   	                     corrected_velocity_4dd['data'],
 	                     replace_existing=True)
-        # Correct overfolds by constraining to sounding (code in Py-ART returns values too high)
-        sim_vel = radar.fields['sim_velocity']['data'][:]
-        corr_vel = radar.fields['corrected_velocity']['data'][:]
-        radar.fields['corrected_velocity']['data'] = corr_vel
-        nyq_interval = radar.instrument_parameters['nyquist_velocity']['data']
-        nyq_interval = 2*(nyq_interval[1]).mean()
-        print(nyq_interval)
-        for nsweep, sweep_slice in enumerate(radar.iter_slice()):
-            scorr = corr_vel[sweep_slice]
-            sref = sim_vel[sweep_slice]
-            mean_diff = (sref - scorr).mean()
-            global_fold = round(mean_diff / nyq_interval)
-            print(global_fold)
-            if global_fold != 0:
-                corr_vel[sweep_slice] += global_fold * nyquist_interval
-        radar.fields['corrected_velocity']['data'] = corr_vel
+ 
+        # Calculate gradient of field
+        gradient = pyart.config.get_metadata('velocity')
+        gradients = np.ma.array(np.gradient(radar.fields['corrected_velocity']['data']))
+        gradients = np.ma.masked_where(gradients < -31000,gradients)
+        gradients = gradients/(radar.instrument_parameters['nyquist_velocity']['data'][1])
+        gradient['data'] = gradients[0]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_azimuth'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_angle',
+                        gradient,
+                        replace_existing=True)
+
+        gradient = pyart.config.get_metadata('velocity')
+        gradient['data'] = gradients[1]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_range'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_range',
+                        gradient,
+                        replace_existing=True)
+
+        # Calculate difference from simulated velocity
+        diff = radar.fields['corrected_velocity']['data'] - radar.fields['sim_velocity']['data']
+        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])     
+        radar.add_field_like('sim_velocity', 
+                             'velocity_diff', 
+                             diff, 
+                             replace_existing=True)    
+            
+        # Filter by gradient   
+        corr_vel = corrected_velocity_4dd['data']
+        corr_vel = np.ma.masked_where(np.logical_or(np.logical_or(gradients[0] > 0.3, 
+                                                                  gradients[0] < -0.3),
+                                                    np.logical_or(diff > 0.9, 
+                                                                  diff < -0.9)),
+                                      corr_vel)
+            
+        corrected_velocity_4dd['data'] = corr_vel
+        radar.add_field_like(vel_field, 
+                             'corrected_velocity', 
+  	                     corrected_velocity_4dd['data'],
+	                     replace_existing=True)
 	    
         # Save to Cf/Radial file
         time_procedures.write_radar_to_cpol_cfradial(radar, rad_time)
@@ -312,15 +357,17 @@ def display_time(rad_time):
 
         plt.close() 
     except:
+        import sys
         print('Skipping corrupt time' +
-	      year_str + 
+              year_str + 
               '-' +
               month_str + 
-	      ' ' + 
+              ' ' + 
               hour_str + 
               ':' +
               minute_str)
-
+        print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+ 
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
                                                             start_month,
                                                             start_day,
@@ -334,8 +381,8 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 
 # Go through all of the scans
-#for rad_time in times:
-#    display_time(rad_time)
+#or rad_time in times:
+#   display_time(rad_time)
 
 # Get iPython cluster
 state = 0
