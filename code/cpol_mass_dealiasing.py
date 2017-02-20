@@ -14,18 +14,18 @@ import time_procedures
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2011
-start_month = 1
-start_day = 1
+start_year = 2005
+start_month = 12
+start_day = 24
 start_hour = 0
 start_minute = 1
 
-end_year = 2011
-end_month = 1
-end_day = 15
+end_year = 2005
+end_month = 12
+end_day = 25
 end_hour = 0
 end_minute = 2
 
@@ -164,16 +164,15 @@ def display_time(rad_time):
     import os
     from datetime import timedelta
     from scipy import ndimage
-    from scipy.stats import gaussian_kde
-    from scipy.signal import argrelextrema
+    
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
     out_data_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
     # CPOL in lassen or rapic?
-    cpol_format = 1    # 0 = lassen, 1 = rapic
+    cpol_format = 0    # 0 = lassen, 1 = rapic
 
     year_str = "%04d" % rad_time.year
     month_str = "%02d" % rad_time.month
@@ -181,13 +180,7 @@ def display_time(rad_time):
     hour_str = "%02d" % rad_time.hour
     minute_str = "%02d" % rad_time.minute
     second_str = "%02d" % rad_time.second
-    def kde_scipy(x, x_grid, bandwidth=0.2, **kwargs):
-        """Kernel Density Estimation with Scipy"""
-        # Note that scipy weights its bandwidth by the covariance of the
-        # input data.  To make the results comparable to the other methods,
-        # we divide the bandwidth by the sample standard deviation here.
-        kde = gaussian_kde(x, bw_method=bandwidth / x.std(ddof=1), **kwargs)
-        return kde.evaluate(x_grid)
+    
    
     try:
         radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
@@ -257,8 +250,8 @@ def display_time(rad_time):
                                                                     keep_original=False,
 	                                                            centered=True,
 	                                                            interval_splits=3,
-	                                                            skip_between_rays=0,
-	                                                            skip_along_ray=0,
+	                                                            skip_between_rays=100,
+	                                                            skip_along_ray=100,
 	                                                            rays_wrap_around=True,
 	                                                            valid_min=-75,
 	                                                            valid_max=75)
@@ -268,12 +261,7 @@ def display_time(rad_time):
         corr_vel = corrected_velocity_4dd['data']
         sim_velocity = radar.fields['sim_velocity']['data']
         diff = corr_vel - radar.fields['sim_velocity']['data']
-        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])                
-        X = diff[diff > -100]
-        X = X.flatten()
-        x_grid = np.linspace(-5, 5, 100)
-        pdf = kde_scipy(X, x_grid, bandwidth=0.05)
-        minima = argrelextrema(pdf, np.less)
+        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])                   
         radar.add_field_like(vel_field, 
                              'corrected_velocity', 
   	                     corrected_velocity_4dd['data'],
@@ -381,8 +369,8 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 
 # Go through all of the scans
-#or rad_time in times:
-#   display_time(rad_time)
+for rad_time in times:
+    display_time(rad_time)
 
 # Get iPython cluster
 state = 0

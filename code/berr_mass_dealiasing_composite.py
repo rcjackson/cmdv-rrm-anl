@@ -14,18 +14,18 @@ import time_procedures
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/home/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 3
-start_day = 26
+start_year = 2005
+start_month = 11
+start_day = 1
 start_hour = 9
 start_minute = 50 
 
-end_year = 2010
-end_month = 3
-end_day = 26
+end_year = 2011
+end_month = 5
+end_day = 30
 end_hour = 12
 end_minute = 2
 
@@ -119,6 +119,8 @@ def display_time(rad_date):
         if(not os.path.isfile(out_file)):
             try:
                 radar = time_procedures.get_radar_from_berr_cfradial(rad_time)
+                if(not 'last_Radar' in locals()):
+                    last_Radar = radar
                 if(cpol_format == 1):
                     ref_field = 'Refl'
                     vel_field = 'Vel'
@@ -165,70 +167,58 @@ def display_time(rad_date):
                 gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                      vel_field)
                 gatefilter.exclude_below(ref_field, 0)
+                gatefilter.exclude_masked(vel_field)
+                gatefilter.exclude_invalid(vel_field)
+                gatefilter.exclude_masked(ref_field)
+                gatefilter.exclude_invalid(ref_field)
+                gatefilter.exclude_above(ref_field, 80)
+                gatefilter.exclude_below(vel_field, -75)
+                gatefilter.exclude_above(vel_field, 75)
                 
-                
-                #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
-                #                                                            vel_field=vel_field,
-                #                                                            gatefilter=gatefilter,
-                #                                                            keep_original=False,
-                #                                                            centered=True,
-                #                                                            skip_between_rays=0,
-                #                                                            skip_along_ray=0,
-                #                                                            rays_wrap_around=True,
-                #                                                            valid_min=-75,
-                #                                                            valid_max=75)
-                try:
+                if(last_Radar.nsweeps == radar.nsweeps and not last_Radar == radar):
+                    try:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              last_Radar=radar,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              gatefilter=gatefilter,
+                                                                              ) 
+                    except:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              gatefilter=gatefilter,
+                                                                              ) 
+                else:
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
                                                                           vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
-                                                                          keep_original=False,
-                                                                          last_radar=last_Radar,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          ba_mincount=5,
-                                                                          ) 
-                except:
-                    corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
                                                                           keep_original=False,
                                                                           filt=1,
                                                                           sonde_profile=wind_profile,
-                                                                          ba_mincount=5, 
-                # Filter out regions based on deviation from sounding field to remove missed folds                                                         
-                corr_vel = corrected_velocity_4dd['data']
-                sim_velocity = radar.fields['sim_velocity']['data']
-                diff = corr_vel - radar.fields['sim_velocity']['data']
-                diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])                   
-                radar.add_field_like(vel_field, 
-                                    'corrected_velocity', 
-  	                            corrected_velocity_4dd['data'],
-	                            replace_existing=True)
- 
-                # Calculate gradient of field
-                gradient = pyart.config.get_metadata('velocity')
-                gradients = np.ma.array(np.gradient(radar.fields['corrected_velocity']['data']))
-                gradients = np.ma.masked_where(gradients < -31000,gradients)
-                gradients = gradients/(radar.instrument_parameters['nyquist_velocity']['data'][1])
-                gradient['data'] = gradients[0]
-                gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_azimuth'
-                gradient['units'] = 'meters per second per gate (divided by Vn)'
-                radar.add_field('gradient_wrt_angle',
-                                gradient,
-                                replace_existing=True)
+                                                                          gatefilter=gatefilter, 
+                                                                          )
 
-                gradient = pyart.config.get_metadata('velocity')
-                gradient['data'] = gradients[1]
-                gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_range'
-                gradient['units'] = 'meters per second per gate (divided by Vn)'
-                radar.add_field('gradient_wrt_range',
-                                gradient,
-                                replace_existing=True)
-
-                # Filter by gradient   
+                # Calculate result from region based dealiasing
+                corrected_velocity_region = pyart.correct.dealias_region_based(radar,
+                                                                               vel_field=vel_field,
+                                                                               keep_original=False,
+                                                                               centered=True,
+                                                                               gatefitler=gatefilter,
+                                                                               interval_splits=3,
+                                                                               skip_between_rays=1000,
+                                                                               skip_along_ray=1000,
+                                                                               rays_wrap_around=True,
+                                                                               valid_min=-75,
+                                                                               valid_max=75)                                              
+                
                 corr_vel = corrected_velocity_4dd['data']
-                corr_vel = np.ma.masked_where(np.logical_or(gradients[0] > 0.3, 
-                                                            gradients[0] < -0.3),
+                difference = corrected_velocity_4dd['data']/corrected_velocity_region['data']
+                corr_vel = np.ma.masked_where(np.logical_or(difference > 1.05, 
+                                                            difference < 0.95),
                                              corr_vel)
             
                 corrected_velocity_4dd['data'] = corr_vel
@@ -236,6 +226,7 @@ def display_time(rad_date):
                                      'corrected_velocity', 
                                      corrected_velocity_4dd['data'],
                                      replace_existing=True)
+
 
                 time_procedures.write_radar_to_berr_cfradial(radar, rad_time)
                 last_Radar = radar
@@ -281,6 +272,7 @@ def display_time(rad_date):
                       minute_str)
                 print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
 
+
 times,dates = time_procedures.get_radar_times_berr_cfradial(start_year, 
                                                             start_month,
                                                             start_day,
@@ -298,7 +290,7 @@ print(dates)
 #for rad_time in times:
 #    display_time(rad_time)
 
-serial = 1
+serial = 0
 
 if(serial == 0):
     # Get iPython cluster

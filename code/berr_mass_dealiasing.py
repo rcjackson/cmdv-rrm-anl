@@ -141,8 +141,8 @@ def display_time(rad_time):
                                                                     keep_original=False,
                                                                     centered=True,
                                                                     interval_splits=3,
-                                                                    skip_between_rays=100,
-                                                                    skip_along_ray=100,
+                                                                    skip_between_rays=0,
+                                                                    skip_along_ray=0,
                                                                     rays_wrap_around=True,
                                                                     valid_min=-75,
                                                                     valid_max=75)
@@ -234,6 +234,7 @@ def display_time(rad_time):
         plt.savefig(out_path + out_file)
         plt.close() 
     except:
+        import sys
         print('Skipping corrupt time' +
               year_str + 
               '-' +
@@ -242,6 +243,7 @@ def display_time(rad_time):
               hour_str + 
               ':' +
               minute_str)
+        print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
 
 times,dates = time_procedures.get_radar_times_berr_cfradial(start_year, 
                                                             start_month,
