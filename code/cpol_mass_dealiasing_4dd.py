@@ -21,13 +21,13 @@ out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
 start_year = 2011
 start_month = 1
-start_day = 1
+start_day = 28
 start_hour = 16
 start_minute = 1
 
 end_year = 2011
-end_month = 2
-end_day = 1
+end_month = 1
+end_day = 28
 end_hour = 23
 end_minute = 2
 
@@ -177,21 +177,30 @@ def display_time(rad_date):
             #                                                            rays_wrap_around=True,
             #                                                            valid_min=-75,
             #                                                            valid_max=75)
-            try:
+            if(last_Radar.nsweeps == radar.nsweeps):
+                    try:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              last_Radar=radar,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              )
+                    except:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              )
+            else:
                 corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
                                                                       vel_field=vel_field,
-                                                                      gatefilter=gatefilter,
                                                                       keep_original=False,
-                                                                      last_radar=last_Radar,
-                                                                      sonde_profile=wind_profile,                 
-                                                                      ) 
-            except:
-                corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                      vel_field=vel_field,
-                                                                      gatefilter=gatefilter,
-                                                                      keep_original=False,
+                                                                      filt=1,
                                                                       sonde_profile=wind_profile,
-                                                                      ba_mincount=5,) 
+                                                                      )
+
             radar.add_field_like(vel_field, 
                              'corrected_velocity', 
   	                     corrected_velocity_4dd['data'],
@@ -227,10 +236,8 @@ def display_time(rad_date):
             
             # Filter by gradient   
             corr_vel = corrected_velocity_4dd['data']
-            corr_vel = np.ma.masked_where(np.logical_or(np.logical_or(gradients[0] > 0.3, 
-                                                                      gradients[0] < -0.3),
-                                                        np.logical_or(diff > 0.7, 
-                                                                      diff < -0.7)),
+            corr_vel = np.ma.masked_where(np.logical_or(gradients[0] > 0.3, 
+                                                        gradients[0] < -0.3)),
                                           corr_vel)
             
             corrected_velocity_4dd['data'] = corr_vel
@@ -295,7 +302,7 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 print(dates)
 
-serial = 0
+serial = 1
 if(serial == 0):
     # Go through all of the scans
     #for rad_time in times:
@@ -326,7 +333,7 @@ if(serial == 0):
 
     #Map the code and input to all workers
     result = My_View.map_async(display_time, dates)
-
+    result.display_output()
     #Reduce the result to get a list of output
     qvps = result.get()
     tt = time.time() - t1

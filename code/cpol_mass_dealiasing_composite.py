@@ -162,7 +162,22 @@ def display_time(rad_date):
             wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                          u[0::steps],
                                                                          v[0::steps])
-               
+            vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                            'Vel', 
+                                                            0, 
+                                                            -9999.0, 
+                                                            excluded=None)
+            for i in range(0,17):
+                sweep = vels.get_sweep(i)
+                ray0 = sweep.get_ray(0)
+                ray50 = sweep.get_ray(50)
+                diff = ray0.azimuth-ray50.azimuth 
+                if(diff > 180.0):
+                    diff = 360.0 - diff    
+                if(abs(diff)/50.0 < 0.9):
+                    print('Corrupt azimuthal angle data....skipping file!')
+                    raise Exception('Corrupt azimuthal angles!')   
+
             ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
             wind_profile.u = wind_profile.u_wind
             wind_profile.v = wind_profile.v_wind
@@ -180,6 +195,22 @@ def display_time(rad_date):
             gatefilter.exclude_below(vel_field, -75)
             gatefilter.exclude_above(vel_field, 75)
             print('Running 4DD...')
+            vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                'Vel', 
+                                                0, 
+                                                -9999.0, 
+                                                excluded=None)
+            for i in range(0,17):
+                sweep = vels.get_sweep(i)
+                ray0 = sweep.get_ray(0)
+                ray50 = sweep.get_ray(50)
+                diff = ray0.azimuth-ray50.azimuth 
+                if(diff > 180.0):
+                    diff = 360.0 - diff    
+                if(abs(diff)/50.0 < 0.8):
+                    print('Corrupt azimuthal angle data....skipping file!')
+                    raise Exception('Corrupt azimuthal angles!')
+
             if(last_Radar.nsweeps == radar.nsweeps and not last_Radar == radar):
                 try:
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
@@ -213,9 +244,9 @@ def display_time(rad_date):
                                                                            keep_original=False,
                                                                            centered=True,
                                                                            gatefilter=gatefilter,
-                                                                           interval_splits=3,
-                                                                           skip_between_rays=100,
-                                                                           skip_along_ray=1000,
+                                                                           interval_splits=6,
+                                                                           skip_between_rays=2000,
+                                                                           skip_along_ray=2000,
                                                                            rays_wrap_around=True,
                                                                            valid_min=-75,
                                                                            valid_max=75,
@@ -290,7 +321,7 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 print(dates)
 
-serial = 1
+serial = 0
 if(serial == 0):
     # Go through all of the scans
     #for rad_time in times:
@@ -321,7 +352,6 @@ if(serial == 0):
 
     #Map the code and input to all workers
     result = My_View.map_async(display_time, dates)
-    result.display_output()
     #Reduce the result to get a list of output
     qvps = result.get()
     tt = time.time() - t1

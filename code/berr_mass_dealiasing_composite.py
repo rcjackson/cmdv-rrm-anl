@@ -17,15 +17,15 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2005
-start_month = 11
-start_day = 1
+start_year = 2006
+start_month = 1
+start_day = 27
 start_hour = 9
 start_minute = 50 
 
-end_year = 2011
-end_month = 5
-end_day = 30
+end_year = 2006
+end_month = 1
+end_day = 28
 end_hour = 12
 end_minute = 2
 
@@ -163,6 +163,28 @@ def display_time(rad_date):
                 wind_profile.v = wind_profile.v_wind
                
                 print(wind_profile)
+    
+                # Some files have azimuthal angle configurations that break assumptions 
+                # of 4DD code
+                # In terms of how the 4DD code calculates beam width likely due to bad azimuthal
+                # angle data
+                # Let's skip for now....
+                vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                'Vel', 
+                                                0, 
+                                                -9999.0, 
+                                                excluded=None)
+                for i in range(0,17):
+                    sweep = vels.get_sweep(i)
+                    ray0 = sweep.get_ray(0)
+                    ray50 = sweep.get_ray(50)
+                    diff = ray0.azimuth-ray50.azimuth 
+                    if(diff > 180.0):
+                        diff = 360.0 - diff    
+                    if(abs(diff)/50.0 < 0.8):
+                        print('Corrupt azimuthal angle data....skipping file!')
+                        raise Exception('Corrupt azimuthal angles!')
+
                 # Dealias velocities
                 gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                      vel_field)
@@ -208,9 +230,9 @@ def display_time(rad_date):
                                                                                keep_original=False,
                                                                                centered=True,
                                                                                gatefitler=gatefilter,
-                                                                               interval_splits=3,
-                                                                               skip_between_rays=1000,
-                                                                               skip_along_ray=1000,
+                                                                               interval_splits=6,
+                                                                               skip_between_rays=2000,
+                                                                               skip_along_ray=2000,
                                                                                rays_wrap_around=True,
                                                                                valid_min=-75,
                                                                                valid_max=75)                                              
@@ -290,7 +312,7 @@ print(dates)
 #for rad_time in times:
 #    display_time(rad_time)
 
-serial = 0
+serial = 1
 
 if(serial == 0):
     # Get iPython cluster
