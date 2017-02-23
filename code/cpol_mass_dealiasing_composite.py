@@ -19,14 +19,14 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2009
-start_month = 11
-start_day = 1
+start_year = 2005
+start_month = 12
+start_day = 24
 start_hour = 16
 start_minute = 1
 
-end_year = 2011
-end_month = 5
+end_year = 2006
+end_month = 12
 end_day = 25
 end_hour = 23
 end_minute = 2
@@ -76,21 +76,12 @@ def display_time(rad_date):
                         'Gunn_Pt' +
                         '.rapic')
         radar = pyart.aux_io.read_radx(file_name_str)
-        return radar 
-
-    def kde_scipy(x, x_grid, bandwidth=0.2, **kwargs):
-        """Kernel Density Estimation with Scipy"""
-        # Note that scipy weights its bandwidth by the covariance of the
-        # input data.  To make the results comparable to the other methods,
-        # we divide the bandwidth by the sample standard deviation here.
-        kde = gaussian_kde(x, bw_method=bandwidth / x.std(ddof=1), **kwargs)
-        return kde.evaluate(x_grid)
-    
+        return radar     
     one_day_later = rad_date+timedelta(days=1)
     times, dates = time_procedures.get_radar_times_cpol_cfradial(rad_date.year, 
                                                                  rad_date.month,
                                                                  rad_date.day,
-                                                                 1, 
+                                                                 0, 
                                                                  1,
                                                                  one_day_later.year, 
                                                                  one_day_later.month,
@@ -125,10 +116,12 @@ def display_time(rad_date):
                 ref_field = 'Refl'
                 vel_field = 'Vel'
                 ref_threshold = 0
+                rhohv_field = 'RHOHV'
             else:
                 ref_field = 'reflectivity'
                 vel_field = 'velocity'
-                ref_threshold = 10
+                ref_threshold = 5
+                rhohv_field = 'cross_correlation_ratio'
 
             if(radar.nsweeps == 1):
                 raise Exception('Radar only has one sweep!')
@@ -185,8 +178,9 @@ def display_time(rad_date):
             print(wind_profile)
             # Dealias velocities
             gatefilter = pyart.correct.GateFilter(radar)         
-            # CPOL before 2006 hangs on noise w/Z < 10 dBZ
+            # Region based hangs before 2006 hangs on noise w/Z < 10 dBZ
             gatefilter.exclude_below(ref_field, ref_threshold)
+            gatefilter.exclude_below(rhohv_field, 0.5)
             gatefilter.exclude_masked(vel_field)
             gatefilter.exclude_invalid(vel_field)
             gatefilter.exclude_masked(ref_field)
@@ -196,10 +190,12 @@ def display_time(rad_date):
             gatefilter.exclude_above(vel_field, 75)
             print('Running 4DD...')
             vels = pyart.correct.dealias._create_rsl_volume(radar, 
-                                                'Vel', 
-                                                0, 
-                                                -9999.0, 
-                                                excluded=None)
+                                                            'Vel', 
+                                                            0, 
+                                                            -9999.0, 
+                                                            excluded=None)
+
+            # Discontinuties in azimuthal angles due to corrupt data make 4DD segfault
             for i in range(0,17):
                 sweep = vels.get_sweep(i)
                 ray0 = sweep.get_ray(0)
@@ -251,13 +247,11 @@ def display_time(rad_date):
                                                                            valid_min=-75,
                                                                            valid_max=75,
                                                                            nyquist_velocity=nyq)                                              
-                
             corr_vel = corrected_velocity_4dd['data']
-            difference = corrected_velocity_4dd['data']/corrected_velocity_region['data']
+            difference = corr_vel/corrected_velocity_region['data']
             corr_vel = np.ma.masked_where(np.logical_or(difference > 1.05, 
                                                         difference < 0.95),
                                           corr_vel)
-            
             corrected_velocity_4dd['data'] = corr_vel
             radar.add_field_like(vel_field, 
                                  'corrected_velocity', 
@@ -321,7 +315,7 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 print(dates)
 
-serial = 0
+serial = 1
 if(serial == 0):
     # Go through all of the scans
     #for rad_time in times:

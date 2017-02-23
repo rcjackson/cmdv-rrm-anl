@@ -78,7 +78,7 @@ def display_time(rad_date):
     times, dates = time_procedures.get_radar_times_berr_cfradial(rad_date.year, 
                                                                  rad_date.month,
                                                                  rad_date.day,
-                                                                 1, 
+                                                                 0, 
                                                                  1,
                                                                  one_day_later.year, 
                                                                  one_day_later.month,
