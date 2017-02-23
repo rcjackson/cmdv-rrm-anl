@@ -165,7 +165,21 @@ def display_time(rad_date):
             gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                  vel_field)
             gatefilter.exclude_below(ref_field, 0)
-                 
+            vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                'Vel', 
+                                                0, 
+                                                -9999.0, 
+                                                excluded=None)
+            for i in range(0,17):
+                sweep = vels.get_sweep(i)
+                ray0 = sweep.get_ray(0)
+                ray50 = sweep.get_ray(50)
+                diff = ray0.azimuth-ray50.azimuth 
+                if(diff > 180.0):
+                    diff = 360.0 - diff    
+                if(abs(diff)/50.0 < 0.8):
+                    print('Corrupt azimuthal angle data....skipping file!')
+                    raise Exception('Corrupt azimuthal angles!')     
                 
             #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
             #                                                            vel_field=vel_field,

@@ -14,18 +14,18 @@ import time_procedures
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/home/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 3
-start_day = 26
+start_year = 2005
+start_month = 12
+start_day = 24
 start_hour = 9
 start_minute = 50 
 
-end_year = 2010
-end_month = 3
-end_day = 26
+end_year = 2005
+end_month = 12
+end_day = 25
 end_hour = 12
 end_minute = 2
 
@@ -119,6 +119,8 @@ def display_time(rad_date):
         if(not os.path.isfile(out_file)):
             try:
                 radar = time_procedures.get_radar_from_berr_cfradial(rad_time)
+                if(not 'last_Radar' in locals()):
+                    last_Radar = radar
                 if(cpol_format == 1):
                     ref_field = 'Refl'
                     vel_field = 'Vel'
@@ -166,7 +168,22 @@ def display_time(rad_date):
                                                                      vel_field)
                 gatefilter.exclude_below(ref_field, 0)
                 
-                
+                vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                'Vel', 
+                                                0, 
+                                                -9999.0, 
+                                                excluded=None)
+                for i in range(0,17):
+                    sweep = vels.get_sweep(i)
+                    ray0 = sweep.get_ray(0)
+                    ray50 = sweep.get_ray(50)
+                    diff = ray0.azimuth-ray50.azimuth 
+                    if(diff > 180.0):
+                        diff = 360.0 - diff    
+                    if(abs(diff)/50.0 < 0.8):
+                        print('Corrupt azimuthal angle data....skipping file!')
+                        raise Exception('Corrupt azimuthal angles!')          
+
                 #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                 #                                                            vel_field=vel_field,
                 #                                                            gatefilter=gatefilter,
@@ -177,24 +194,30 @@ def display_time(rad_date):
                 #                                                            rays_wrap_around=True,
                 #                                                            valid_min=-75,
                 #                                                            valid_max=75)
-                try:
+                if(last_Radar.nsweeps == radar.nsweeps and not last_Radar == radar):
+                    try:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              last_Radar=radar,
+                                                                              filt=1,
+                                                                              sign=-1
+                                                                              ) 
+                    except:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              ) 
+                else:
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
-                                                                          keep_original=False,
-                                                                          last_radar=last_Radar,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          ba_mincount=5,
-                                                                          ) 
-                except:
-                    corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          gatefilter=gatefilter,
-                                                                          keep_original=False,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          ba_mincount=5, 
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              )
+
                 # Filter out regions based on deviation from sounding field to remove missed folds                                                         
                 corr_vel = corrected_velocity_4dd['data']
                 sim_velocity = radar.fields['sim_velocity']['data']
@@ -236,6 +259,7 @@ def display_time(rad_date):
                                      'corrected_velocity', 
                                      corrected_velocity_4dd['data'],
                                      replace_existing=True)
+
 
                 time_procedures.write_radar_to_berr_cfradial(radar, rad_time)
                 last_Radar = radar
@@ -280,6 +304,7 @@ def display_time(rad_date):
                       ':' +
                       minute_str)
                 print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+
 
 times,dates = time_procedures.get_radar_times_berr_cfradial(start_year, 
                                                             start_month,
