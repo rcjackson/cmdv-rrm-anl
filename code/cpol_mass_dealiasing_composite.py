@@ -16,19 +16,19 @@ from scipy.signal import argrelextrema
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2005
-start_month = 12
-start_day = 24
-start_hour = 16
+start_year = 2009
+start_month = 11
+start_day = 1
+start_hour = 1
 start_minute = 1
 
-end_year = 2006
-end_month = 12
-end_day = 25
-end_hour = 23
+end_year = 2010
+end_month = 3
+end_day = 9
+end_hour = 1
 end_minute = 2
 
 def display_time(rad_date):
@@ -46,7 +46,7 @@ def display_time(rad_date):
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
     out_data_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
     # CPOL in lassen or rapic?
@@ -112,7 +112,7 @@ def display_time(rad_date):
 
         try:  
             radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
-            if(rad_time.year > 2006):
+            if(rad_time.year > 2007):
                 ref_field = 'Refl'
                 vel_field = 'Vel'
                 ref_threshold = 0
@@ -155,22 +155,7 @@ def display_time(rad_date):
             wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                          u[0::steps],
                                                                          v[0::steps])
-            vels = pyart.correct.dealias._create_rsl_volume(radar, 
-                                                            'Vel', 
-                                                            0, 
-                                                            -9999.0, 
-                                                            excluded=None)
-            for i in range(0,17):
-                sweep = vels.get_sweep(i)
-                ray0 = sweep.get_ray(0)
-                ray50 = sweep.get_ray(50)
-                diff = ray0.azimuth-ray50.azimuth 
-                if(diff > 180.0):
-                    diff = 360.0 - diff    
-                if(abs(diff)/50.0 < 0.9):
-                    print('Corrupt azimuthal angle data....skipping file!')
-                    raise Exception('Corrupt azimuthal angles!')   
-
+      
             ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
             wind_profile.u = wind_profile.u_wind
             wind_profile.v = wind_profile.v_wind
@@ -180,7 +165,10 @@ def display_time(rad_date):
             gatefilter = pyart.correct.GateFilter(radar)         
             # Region based hangs before 2006 hangs on noise w/Z < 10 dBZ
             gatefilter.exclude_below(ref_field, ref_threshold)
-            gatefilter.exclude_below(rhohv_field, 0.5)
+            try:
+                gatefilter.exclude_below(rhohv_field, 0.5)
+            except KeyError: 
+                print('No rho HV data! Disabling Rho HV mask!')
             gatefilter.exclude_masked(vel_field)
             gatefilter.exclude_invalid(vel_field)
             gatefilter.exclude_masked(ref_field)
@@ -190,20 +178,20 @@ def display_time(rad_date):
             gatefilter.exclude_above(vel_field, 75)
             print('Running 4DD...')
             vels = pyart.correct.dealias._create_rsl_volume(radar, 
-                                                            'Vel', 
+                                                            vel_field, 
                                                             0, 
                                                             -9999.0, 
                                                             excluded=None)
 
             # Discontinuties in azimuthal angles due to corrupt data make 4DD segfault
-            for i in range(0,17):
+            for i in range(0,radar.nsweeps-1):
                 sweep = vels.get_sweep(i)
                 ray0 = sweep.get_ray(0)
                 ray50 = sweep.get_ray(50)
                 diff = ray0.azimuth-ray50.azimuth 
                 if(diff > 180.0):
                     diff = 360.0 - diff    
-                if(abs(diff)/50.0 < 0.8):
+                if(abs(diff)/50.0 < 0.5):
                     print('Corrupt azimuthal angle data....skipping file!')
                     raise Exception('Corrupt azimuthal angles!')
 
@@ -315,7 +303,7 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 print(dates)
 
-serial = 1
+serial = 0
 if(serial == 0):
     # Go through all of the scans
     #for rad_time in times:
