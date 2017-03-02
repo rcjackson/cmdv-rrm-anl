@@ -906,7 +906,6 @@ def get_radar_from_cpol_cfradial(time):
                         day_str +
                         hour_str +
                         minute_str +
-                        second_str +
                         '*.nc')
     else:
         file_name_str = (data_path_cpol_cfradial + 
