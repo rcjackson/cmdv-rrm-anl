@@ -14,15 +14,15 @@ from netCDF4 import Dataset
 from datetime import timedelta, datetime
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2009
+start_year = 2005
 start_month = 11
 start_day = 1
 start_hour = 0
 start_minute = 1
 
 end_year = 2011
-end_month = 6
-end_day = 1
+end_month = 5
+end_day = 15
 end_hour = 1
 end_minute = 2
 
@@ -200,6 +200,7 @@ for timer in all_times:
         days_array[i] = timer.day
         hours_array[i] = timer.hour
         seconds_array[i] = timer.second
+        minutes_array[i] = timer.minute
     else:
         year_str = "%04d" % timer.year
         month_str = "%02d" % timer.month
@@ -230,6 +231,7 @@ for timer in all_times:
         days_array[i] = timer.day
         hours_array[i] = timer.hour
         seconds_array[i] = timer.second
+        minutes_array[i] = timer.minute
         max_ref[i] = float('nan')
     i = i + 1   
 # Output results into netCDF file
