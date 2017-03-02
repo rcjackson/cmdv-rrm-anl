@@ -139,8 +139,12 @@ def do_multidop_for_time(frame_time):
         file.close()
         # Calculate texture of velocity field for Berrima and CPOL
         # if previous frame is not available, just use (u,v) = 0
-       
-        Radar = time_procedures.get_radar_from_cpol_cfradial(frame_time)
+        try:
+            Radar = time_procedures.get_radar_from_cpol_cfradial(frame_time)
+        except:
+            print('Could not load CPOL radar data file!')
+            return
+
         try:
             Radar_berr = time_procedures.get_radar_from_berr_cfradial(times_berr[0])
         except:
@@ -156,24 +160,30 @@ def do_multidop_for_time(frame_time):
   
         bt = time.time()
         print('Calculating texture....')
-        nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
-        nyq_Berr = Radar_berr.instrument_parameters['nyquist_velocity']['data'][0]
-        data = ndimage.filters.generic_filter(Radar.fields['corrected_velocity']['data'],
-                                             pyart.util.interval_std, size = (4,4),
-                                             extra_arguments = (-nyq_Gunn, nyq_Gunn))
-        filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-        texture_field = pyart.config.get_metadata('corrected_velocity')
-        texture_field['data'] = filtered_data
-        Radar.add_field('velocity_texture', texture_field, replace_existing = True)
-        data = ndimage.filters.generic_filter(Radar_berr.fields['corrected_velocity']['data'],
-                                              pyart.util.interval_std, size = (4,4),
-                                              extra_arguments = (-nyq_Gunn, nyq_Gunn))
-        filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-        texture_field = pyart.config.get_metadata('corrected_velocity')
-        texture_field['data'] = filtered_data
-        Radar_berr.add_field('velocity_texture', texture_field, replace_existing = True)
-        print('Done!')
-        print((time.time()-bt)/60.0, 'minutes to process')
+        try: 
+            nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
+            nyq_Berr = Radar_berr.instrument_parameters['nyquist_velocity']['data'][0]
+            data = ndimage.filters.generic_filter(Radar.fields['corrected_velocity']['data'],
+                                                  pyart.util.interval_std, size = (4,4),
+                                                  extra_arguments = (-nyq_Gunn, nyq_Gunn))
+            filtered_data = ndimage.filters.median_filter(data, size = (4,4))
+            texture_field = pyart.config.get_metadata('corrected_velocity')
+            texture_field['data'] = filtered_data
+            Radar.add_field('velocity_texture', texture_field, replace_existing = True)
+            data = ndimage.filters.generic_filter(Radar_berr.fields['corrected_velocity']['data'],
+                                                  pyart.util.interval_std, size = (4,4),
+                                                  extra_arguments = (-nyq_Gunn, nyq_Gunn))
+            filtered_data = ndimage.filters.median_filter(data, size = (4,4))
+            texture_field = pyart.config.get_metadata('corrected_velocity')
+            texture_field['data'] = filtered_data
+            Radar_berr.add_field('velocity_texture', texture_field, replace_existing = True)
+            print('Done!')
+            print((time.time()-bt)/60.0, 'minutes to process')
+        except:
+            import sys
+            print('Could not find unfolded velocities! Skipping!')
+            print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+            return
 	    
         # Apply gatefilter based on velocity and despeckling
         gatefilter_Gunn = pyart.correct.despeckle_field(Radar, 

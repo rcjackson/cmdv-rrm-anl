@@ -4,31 +4,57 @@ import time_procedures
 from time import sleep
 import time
 import numpy as np
+from netCDF4 import Dataset
+from datetime import datetime
 
 # Get the radars from given time.
 # Input the range of dates and time wanted for the collection of images
-start_year = 2010
-start_day = 26
+start_year = 2005
+start_day = 11
 start_month = 11
-start_hour = 2
+start_hour = 1
 start_minute = 0
 start_second = 1
 
-end_year = 2010
-end_month = 11
-end_day = 26
-end_hour = 6
+end_year = 2011
+end_month = 5
+end_day = 15
+end_hour = 16
 end_minute = 1
 end_second = 0
 
+start_time = datetime(start_year, start_month, start_day,
+                      start_hour, start_minute, start_second)
+end_time = datetime(end_year, end_month, end_day,
+                    end_hour, end_minute, end_second)
 
-# Make the sounding file for the input
-times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, start_month, 
-                                                            start_day, start_hour, 
-                                                            start_minute, end_year,
-                                                            end_month, end_day, end_hour, 
-                                                            end_minute, minute_interval=0)
+scp_netcdf_file_path = 'SCP.cdf'
 
+# To save core hours, do not process clear air periods
+scp_netcdf = Dataset(scp_netcdf_file_path, mode='r')
+
+years = scp_netcdf.variables['years'][:]
+months = scp_netcdf.variables['months'][:]
+days = scp_netcdf.variables['days'][:]
+hours = scp_netcdf.variables['hours'][:]
+minutes = scp_netcdf.variables['minutes'][:]
+SCP20 = scp_netcdf.variables['SCP20'][:,:]
+levels = scp_netcdf.variables['levels'][:]
+maxz = scp_netcdf.variables['maxz'][:]
+scp_netcdf.close()
+
+times = []
+for i in range(0,len(years)):
+    temp_date = datetime(year=years[i],
+                         month=months[i],
+                         day=days[i],
+                         hour=hours[i],
+                         minute=minutes[i],
+                         )
+    if(SCP20[i,2] > 0.1 and temp_date >= start_time and temp_date <= end_time):
+        times.append(temp_date)   
+
+print(times)
 serial = 0
 
 if(serial == 0):
