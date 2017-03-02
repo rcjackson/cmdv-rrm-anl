@@ -196,7 +196,7 @@ def do_multidop_for_time(frame_time):
                                                         'Refl', 
                                                         size=6)
         gatefilter_Berr.exclude_above('velocity_texture', 4)
-        gatefilter_Gunn.exclude_below('Refl', 1)
+        gatefilter_Berr.exclude_below('Refl', 1)
 
         # Change variable names to DT (reflectivity) and VT (velocity) expected by multidop
         # If you needed to dealias or perform other corrections,
