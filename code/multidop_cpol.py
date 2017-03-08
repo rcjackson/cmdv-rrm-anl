@@ -6,20 +6,20 @@ import time
 import numpy as np
 from netCDF4 import Dataset
 from datetime import datetime
-
+import os
 # Get the radars from given time.
 # Input the range of dates and time wanted for the collection of images
 start_year = 2005
-start_day = 11
+start_day = 1
 start_month = 11
-start_hour = 1
+start_hour = 14
 start_minute = 0
 start_second = 1
 
-end_year = 2011
+end_year = 2006
 end_month = 5
 end_day = 15
-end_hour = 16
+end_hour = 17
 end_minute = 1
 end_second = 0
 
@@ -49,13 +49,27 @@ for i in range(0,len(years)):
                          month=months[i],
                          day=days[i],
                          hour=hours[i],
-                         minute=minutes[i],
+                         minute=minutes[i]-1,
                          )
     if(SCP20[i,2] > 0.1 and temp_date >= start_time and temp_date <= end_time):
-        times.append(temp_date)   
+        # Check for file existence
+        year_str = "%04d" % temp_date.year
+        day_str = "%02d" % temp_date.day
+        month_str = "%02d" % temp_date.month 
+        hour_str = "%02d" % temp_date.hour
+        minute_str = "%02d" % temp_date.minute  
+        fname = (time_procedures.out_data_path + 'ddop/cf_compliant_grid' 
+                                               + year_str 
+                                               + month_str
+                                               + day_str
+                                               + hour_str
+                                               + minute_str +'.nc')    
+        if(not os.path.isfile(fname)):
+            times.append(temp_date)   
 
 print(times)
-serial = 0
+print('About to process ' + str(len(times)) + 'grids')
+serial = 1
 
 if(serial == 0):
     # Get iPython cluster
