@@ -6,21 +6,31 @@ import time
 import numpy as np
 from netCDF4 import Dataset
 from datetime import datetime
+import sys
 import os
 # Get the radars from given time.
 # Input the range of dates and time wanted for the collection of images
-start_year = 2005
-start_day = 1
-start_month = 11
-start_hour = 14
-start_minute = 0
-start_second = 1
 
-end_year = 2006
-end_month = 5
-end_day = 15
+try:
+    start_year = int(sys.argv[1])
+    start_month = int(sys.argv[2])
+    start_day = int(sys.argv[3])
+    end_year = int(sys.argv[4])
+    end_month = int(sys.argv[5])
+    end_day = int(sys.argv[6])   
+except:
+   start_year = 2010
+   start_day = 11
+   start_month = 11
+   end_year = 2011
+   end_month = 5
+   end_day = 15
+
 end_hour = 17
-end_minute = 1
+start_hour = 0
+start_minute = 1
+start_second = 1
+end_minute = 2
 end_second = 0
 
 start_time = datetime(start_year, start_month, start_day,
