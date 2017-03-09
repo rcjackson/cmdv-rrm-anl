@@ -119,19 +119,19 @@ def do_multidop_for_time(frame_time):
                                               
 
         file = open(sounding_file_name, 'w')
- 
+   
         # Take 1000 evenly spaced levels from the sounding and place them into the file
         us = u[u > -75]
         vs = v[u > -75]
         alts = alt[u > -75]
         step = int(math.floor(len(us)/500))
-
-        for i in range(0, len(us), step):
-            input_string = (str(alts[i]) + ' ' + str(us[i]) + ' ' + str(vs[i]) + '\n')
-            file.write(input_string)
+        if(step > 0):
+            for i in range(0, len(us), step):
+                input_string = (str(alts[i]) + ' ' + str(us[i]) + ' ' + str(vs[i]) + '\n')
+                file.write(input_string)
 	
         # If baloon popped below 15 km (approximate tropopause), then don't use sounding
-        if(alts[-1] < 15000):
+        if(alts[-1] < 15000 or step == 0):
             use_sounding = 0
         else:
             use_sounding = 1
