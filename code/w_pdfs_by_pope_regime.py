@@ -11,9 +11,10 @@ import dask.array as da
 from distributed import Client, LocalCluster
 from dask import delayed
 import time
+import sys
 
 # Start a cluster with x workers
-cluster = LocalCluster(n_workers=4)
+cluster = LocalCluster(n_workers=int(sys.argv[1]))
 client = Client(cluster)
 
 # Input the range of dates and time wanted for the collection of images
@@ -24,8 +25,8 @@ start_hour = 1
 start_minute = 0
 start_second = 0
 
-end_year = 2005
-end_month = 12
+end_year = 2011
+end_month = 5
 end_day = 1
 end_hour = 0
 end_minute = 00
@@ -244,7 +245,7 @@ for i in range(0,len(day)):
 num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
-pope_regime = 1
+pope_regime = int(sys.argv[2])
 
 # Filter out data not in Pope regime
 pope_times = []
