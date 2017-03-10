@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import pyart
 from netCDF4 import Dataset
 import numpy as np
@@ -5,18 +7,26 @@ from datetime import datetime, timedelta
 from copy import deepcopy
 import glob
 import math
+import dask.array as da
+from distributed import Client, LocalCluster
+from dask import delayed
+import time
+
+# Start a cluster with x workers
+cluster = LocalCluster(n_workers=4)
+client = Client(cluster)
 
 # Input the range of dates and time wanted for the collection of images
 start_year = 2005
 start_day = 1
-start_month = 1
+start_month = 11
 start_hour = 1
 start_minute = 0
 start_second = 0
 
-end_year = 2011
-end_month = 5
-end_day = 24
+end_year = 2005
+end_month = 12
+end_day = 1
 end_hour = 0
 end_minute = 00
 end_second = 0
@@ -170,6 +180,48 @@ def get_bca(grid):
     theta_2 = np.arccos((x-berr_origin[1])/b)
     return np.arccos((a*a+b*b-c*c)/(2*a*b))
 
+def get_updrafts(time):
+    pyart_grid = get_grid_from_dda(time)
+    bca = get_bca(pyart_grid)
+    w = pyart_grid.fields['upward_air_velocity']['data']
+    updraft_depth = np.zeros(w[0].shape)
+    z = pyart_grid.fields['reflectivity']['data']
+    for levels in range(0,num_levels-1):
+        outside_dd_lobes = np.logical_or(bca < math.pi/6, 
+                                         bca > 5*math.pi/6)
+        w[levels] = np.ma.masked_where(np.logical_or(outside_dd_lobes, 
+                                                     z[levels] < 1), 
+                                       w[levels])
+        is_in_updraft = w[levels] > 1
+        is_in_updraft_next = w[levels+1] > 1
+        both_in_updraft = np.logical_or(np.logical_and(is_in_updraft,
+                                                       is_in_updraft_next),
+                                        updraft_depth > 10)
+        
+        add_one = np.where(both_in_updraft)
+        set_to_zero = np.where(~both_in_updraft)
+        if(len(add_one[0]) > 0):
+            updraft_depth[add_one[0], 
+                          add_one[1]] = updraft_depth[add_one[0], add_one[1]] + 1 
+            updraft_depth[set_to_zero[0], 
+                          set_to_zero[1]] = 0  
+        
+    for levels in range(0,num_levels-1):
+        invalid_w = np.logical_or(w[levels] < -99, w[levels] > 99)
+        outside_updraft = np.logical_or(updraft_depth < 10, z[levels] < 1)
+        w[levels] = np.ma.masked_where(np.logical_or(invalid_w, 
+                                                     np.logical_or(outside_updraft,
+                                                                   outside_dd_lobes))
+                                      , w[levels])
+    w[w.mask == True] = np.nan
+        
+    # Make new array that is 1 by num_levels by 81 by 111
+    ws_temp = np.ma.zeros((1,num_levels,81,111))
+    rfs_temp = np.ma.zeros((1,num_levels,81,111))
+    ws_temp[0] = w
+    rfs_temp[0] = z 
+    return w
+
 # Plot the radars from given time.
 
 times = get_dda_times(start_year, start_month, start_day,
@@ -192,12 +244,10 @@ for i in range(0,len(day)):
 num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
-pope_regime = 0
-dc = np.ma.zeros((len(times), 81, 111))
-ws = np.ma.zeros((len(times), num_levels, 81, 111))
-ws_all = np.ma.zeros((len(times), num_levels, 81, 111))
-rfs = np.ma.zeros((len(times), num_levels, 81, 111))
+pope_regime = 1
 
+# Filter out data not in Pope regime
+pope_times = []
 for time in times:
     # Look for date in Pope regime data
     cur_date = datetime(year=time.year, month=time.month, day=time.day)
@@ -205,37 +255,13 @@ for time in times:
     pope_index = inds[0][-1]
     print((popedates[pope_index], time))
     if(groups[pope_index] == pope_regime):
-        pyart_grid = get_grid_from_dda(time)
-        bca = get_bca(pyart_grid)
-        w = pyart_grid.fields['upward_air_velocity']['data']
-        updraft_depth = np.zeros(w[0].shape)
-        z = pyart_grid.fields['reflectivity']['data']
-        for levels in range(0,num_levels-1):
-            w[levels] = np.ma.masked_where(np.logical_or(np.logical_or(bca < math.pi/6,
-                                                                       bca > 5*math.pi/6), 
-                                                         z[levels] < 1), w[levels])
-
-            is_in_updraft = w[levels] > 1
-            is_in_updraft_next = w[levels+1] > 1
-            both_in_updraft = np.logical_or(np.logical_and(is_in_updraft,
-                                                           is_in_updraft_next),
-                                            updraft_depth > 10)
-        
-
-            add_one = np.where(both_in_updraft)
-            set_to_zero = np.where(~both_in_updraft)
-            if(len(add_one[0]) > 0):
-                updraft_depth[add_one[0], add_one[1]] = updraft_depth[add_one[0], 
-                                                                      add_one[1]] + 1 
-                updraft_depth[set_to_zero[0], set_to_zero[1]] = 0       
-    
-        dc[count] = updraft_depth
-        ws[count] = w
-        ws_all[count] = w
-        rfs[count] = z
-        count = count + 1
+        pope_times.append(time)
 
 in_netcdf.close()
+
+# Get delayed structure to load files in parallel
+get_file = delayed(get_updrafts)
+ws = [get_file(time) for time in pope_times]
 
 # Calculate PDF
 mean_w = np.ma.zeros(num_levels)
@@ -248,49 +274,35 @@ median_z = np.ma.zeros(num_levels)
 ninety_z = np.ma.zeros(num_levels)
 ninety_five_z = np.ma.zeros(num_levels)
 ninety_nine_z = np.ma.zeros(num_levels)
-dims = ws.shape
 bins = np.arange(-10,40,1)
 bins_z = np.arange(0,60,1)
 w_hist = np.ma.zeros((num_levels, len(bins)-1))
 w_cfad = np.ma.zeros((num_levels, len(bins)-1))
 z_hist = np.ma.zeros((num_levels, len(bins_z)-1))
-
+ws = [da.from_delayed(arrays, shape=(num_levels,81,111),
+                      dtype=float) for arrays in ws]
+ws = da.stack(ws, axis=0)
+print(ws.shape)
+import time
 for levels in range(0,num_levels):
-    w_level = ws[:,levels,:,:]
-    r_level = rfs[:,levels,:,:]
-    for i in range(0, dims[0]):
-        w_level[i,:,:] = np.ma.masked_where(np.logical_or(dc[i,:,:] < 10,
-                                                          r_level[i,:,:] < 1),
-                                                          w_level[i,:,:])
+    t1 = time.time()  
+    w_level = ws[:,levels,:,:]   
+    w_level = np.array(w_level.compute())
+    print(str(levels) + '/' + str(num_levels))
+    array_shape = w_level.shape
+    num_elems = array_shape[0]*array_shape[1]*array_shape[2]    
+    print(w_level.shape)
+    means = np.nanmean(w_level, axis=(0,1)) 
+    mean_w[levels] = np.nanmean(w_level)
+    w_level = np.array(w_level)
+    median_w[levels] = np.nanpercentile(w_level, 50)
+    ninety_w[levels] = np.nanpercentile(w_level, 90)
+    ninety_five_w[levels] = np.nanpercentile(w_level, 95)
+    ninety_nine_w[levels] = np.nanpercentile(w_level, 99)
+    t2 = time.time() - t1
+    print('Total time in s: ' + str(t2))
+    print('Time per scan = ' + str(t2/array_shape[0]))
         
-    ws_in_core = w_level[~w_level.mask]
-    zs_in_core = r_level[~w_level.mask]
-    mean_w[levels] = np.ma.mean(ws_in_core[ws_in_core < 99])
-    median_w[levels] = np.ma.median(ws_in_core[ws_in_core < 99])
-    mean_z[levels] = np.ma.mean(zs_in_core[ws_in_core < 99])
-    median_z[levels] = np.ma.median(zs_in_core[ws_in_core < 99])
-    counts, bins = np.histogram(ws_in_core, bins=bins)
-    w_hist[levels] = counts
-    w_cfad[levels] = counts/(sum(counts)*0.5*1)
-    counts_z, bins_z = np.histogram(zs_in_core, bins=bins_z)  
-    z_hist[levels] = counts_z/(sum(counts_z)*0.5*1)
-    
-    
-    if(len(ws_in_core) > 0):
-        ninety_z[levels] = np.percentile(zs_in_core, 90)
-        ninety_five_z[levels] = np.percentile(zs_in_core, 95)
-        ninety_nine_z[levels] = np.percentile(zs_in_core, 99)
-        ninety_w[levels] = np.percentile(ws_in_core, 90)
-        ninety_five_w[levels] = np.percentile(ws_in_core, 95)
-        ninety_nine_w[levels] = np.percentile(ws_in_core, 99)
-    else:
-        ninety_w[levels] = float('nan')
-        ninety_five_w[levels] = float('nan')
-        ninety_nine_w[levels] = float('nan')
-        ninety_five_z[levels] = float('nan')
-        ninety_nine_z[levels] = float('nan')
-        ninety_z[levels] = float('nan')  
-
 print('Writing netCDF file...')
 # Save to netCDF file
 out_netcdf = Dataset('wpdfregime' + str(pope_regime) + '.cdf', 'w')
