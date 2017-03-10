@@ -433,10 +433,13 @@ def do_multidop_for_time(frame_time):
         # Baseline output is not CF or Py-ART compliant. This function fixes that.
         # This is why we wrote the original output to a tempfile that can be safely removed.
         # The final grid will have all wind solutions outside the coverage region masked.
-     
-        final_grid = multidop.grid_io.make_new_grid([grid_cpol, grid_Berr], localfile.name)
-        final_grid.write(fname)
-        localfile.close()
+        try: 
+            final_grid = multidop.grid_io.make_new_grid([grid_cpol, grid_Berr], localfile.name)
+            final_grid.write(fname)
+            localfile.close()
+        except:
+            print('Failed to write final grid!')
+            return
     else:
         print('DDA grid already exists...skipping.')
 
