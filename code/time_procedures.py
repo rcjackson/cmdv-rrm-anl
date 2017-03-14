@@ -616,16 +616,24 @@ def get_radar_times_berr_cfradial(start_year, start_month, start_day,
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
     for file_name in file_list:
-        new_format_str = (data_path_berr_cfradial +
-                         '/' +
-                         '{:d}' +
-                         '/' +
-                         '{:d}' +
-                         '/' +
-                         'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berrima_v{:d}_UNKNOWN_SUR.nc')
+        if(file_name[-13:] == 'el0.50_SUR.nc'):
+            new_format_str = (data_path_berr_cfradial +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berr_v{:d}_s{:d}_el0.50_SUR.nc')
+        else:
+            new_format_str = (data_path_berr_cfradial +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              '{:d}' +
+                              '/' +
+                              'cfrad.{:d}_{:d}.{:d}_to_{:d}_{:d}.{:d}_Berrima_v{:d}_UNKNOWN_SUR.nc')
         
         parameters = parse(new_format_str, file_name)
-        
         year_str = np.floor(parameters[2]/10000)
         month_str = np.floor((parameters[2]-year_str*10000)/100)
         day_str = np.floor(parameters[2]-year_str*10000-month_str*100)
@@ -805,22 +813,41 @@ def write_radar_to_cpol_cfradial(radar, time):
     hour_str = "%02d" % time.hour
     minute_str = "%02d" % time.minute
     second_str = "%02d" % time.second
-    file_name_str = (data_path_cpol_cfradial + 
-                     '/' +
-                     year_str + 
-                     '/' +
-                     year_str + 
-                     month_str +
-                     day_str +
-                     '/' +  
-                     'cfrad.' +
-                     year_str +
-                     month_str +
-                     day_str +
-                     '_' +
-                     hour_str +
-                     minute_str +
-                     '*.nc')
+    if(time.year > 2007):
+        file_name_str = (data_path_cpol_cfradial + 
+                         '/' +
+                         year_str + 
+                         '/' +
+                         year_str + 
+                         month_str +
+                         day_str +
+                         '/' +  
+                         'cfrad.' +
+                         year_str +
+                         month_str +
+                         day_str +
+                         '_' +
+                         hour_str +
+                         minute_str +
+                         '*.nc')
+    else:
+        file_name_str = (data_path_cpol_cfradial +
+                         '/' +
+                         year_str +
+                         '/' +
+                         year_str +
+                         month_str +
+                         day_str +
+                         '/' +
+                         'Gunn_pt_' +
+                         year_str +
+                         month_str +
+                         day_str +
+                         hour_str +
+                         minute_str +
+                         second_str +
+                         '*.nc')
+  
     file_name = glob.glob(file_name_str)
     file_name = file_name[0]
     pyart.io.write_cfradial(file_name, radar)
@@ -879,7 +906,6 @@ def get_radar_from_cpol_cfradial(time):
                         day_str +
                         hour_str +
                         minute_str +
-                        second_str +
                         '*.nc')
     else:
         file_name_str = (data_path_cpol_cfradial + 

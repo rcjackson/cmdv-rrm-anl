@@ -119,19 +119,19 @@ def do_multidop_for_time(frame_time):
                                               
 
         file = open(sounding_file_name, 'w')
- 
+   
         # Take 1000 evenly spaced levels from the sounding and place them into the file
         us = u[u > -75]
         vs = v[u > -75]
         alts = alt[u > -75]
         step = int(math.floor(len(us)/500))
-
-        for i in range(0, len(us), step):
-            input_string = (str(alts[i]) + ' ' + str(us[i]) + ' ' + str(vs[i]) + '\n')
-            file.write(input_string)
+        if(step > 0):
+            for i in range(0, len(us), step):
+                input_string = (str(alts[i]) + ' ' + str(us[i]) + ' ' + str(vs[i]) + '\n')
+                file.write(input_string)
 	
         # If baloon popped below 15 km (approximate tropopause), then don't use sounding
-        if(alts[-1] < 15000):
+        if(alts[-1] < 15000 or step == 0):
             use_sounding = 0
         else:
             use_sounding = 1
@@ -139,15 +139,19 @@ def do_multidop_for_time(frame_time):
         file.close()
         # Calculate texture of velocity field for Berrima and CPOL
         # if previous frame is not available, just use (u,v) = 0
-       
-        Radar = time_procedures.get_radar_from_cpol_cfradial(frame_time)
+        try:
+            Radar = time_procedures.get_radar_from_cpol_cfradial(frame_time)
+        except:
+            print('Could not load CPOL radar data file!')
+            return
+
         try:
             Radar_berr = time_procedures.get_radar_from_berr_cfradial(times_berr[0])
         except:
             print('Cannot find matching time from Berrima radar, skipping')
             return
 	
-        if(frame_time.year < 2007):
+        if(frame_time.year <= 2007):
             cpol_ref_field = 'reflectivity'
             cpol_vel_field = 'velocity'
         else:
@@ -156,25 +160,28 @@ def do_multidop_for_time(frame_time):
   
         bt = time.time()
         print('Calculating texture....')
-        nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
-        nyq_Berr = Radar_berr.instrument_parameters['nyquist_velocity']['data'][0]
-        data = ndimage.filters.generic_filter(Radar.fields['corrected_velocity']['data'],
-                                             pyart.util.interval_std, size = (4,4),
-                                             extra_arguments = (-nyq_Gunn, nyq_Gunn))
-        filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-        texture_field = pyart.config.get_metadata('corrected_velocity')
-        texture_field['data'] = filtered_data
-        Radar.add_field('velocity_texture', texture_field, replace_existing = True)
-        data = ndimage.filters.generic_filter(Radar_berr.fields['corrected_velocity']['data'],
-                                              pyart.util.interval_std, size = (4,4),
-                                              extra_arguments = (-nyq_Gunn, nyq_Gunn))
-        filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-        texture_field = pyart.config.get_metadata('corrected_velocity')
-        texture_field['data'] = filtered_data
-        Radar_berr.add_field('velocity_texture', texture_field, replace_existing = True)
-        print('Done!')
-        print((time.time()-bt)/60.0, 'minutes to process')
-	    
+        try:
+            nyq_Gunn = Radar.instrument_parameters['nyquist_velocity']['data'][0]
+            nyq_Berr = Radar_berr.instrument_parameters['nyquist_velocity']['data'][0]
+            data = ndimage.filters.generic_filter(Radar.fields['corrected_velocity']['data'],
+                                                  pyart.util.interval_std, size = (4,4),
+                                                  extra_arguments = (-nyq_Gunn, nyq_Gunn))
+            filtered_data = ndimage.filters.median_filter(data, size = (4,4))
+            texture_field = pyart.config.get_metadata('corrected_velocity')
+            texture_field['data'] = filtered_data
+            Radar.add_field('velocity_texture', texture_field, replace_existing = True)
+            data = ndimage.filters.generic_filter(Radar_berr.fields['corrected_velocity']['data'],
+                                                  pyart.util.interval_std, size = (4,4),
+                                                  extra_arguments = (-nyq_Gunn, nyq_Gunn))
+            filtered_data = ndimage.filters.median_filter(data, size = (4,4))
+            texture_field = pyart.config.get_metadata('corrected_velocity')
+            texture_field['data'] = filtered_data
+            Radar_berr.add_field('velocity_texture', texture_field, replace_existing = True)
+            print('Done!')
+            print((time.time()-bt)/60.0, 'minutes to process')
+	except:
+            print('No unfolded velocities! Skipping!')
+            return    
         # Apply gatefilter based on velocity and despeckling
         gatefilter_Gunn = pyart.correct.despeckle_field(Radar, 
                                                         cpol_ref_field, 
@@ -186,7 +193,7 @@ def do_multidop_for_time(frame_time):
                                                         'Refl', 
                                                         size=6)
         gatefilter_Berr.exclude_above('velocity_texture', 4)
-        gatefilter_Gunn.exclude_below('Refl', 1)
+        gatefilter_Berr.exclude_below('Refl', 1)
 
         # Change variable names to DT (reflectivity) and VT (velocity) expected by multidop
         # If you needed to dealias or perform other corrections,
@@ -426,10 +433,13 @@ def do_multidop_for_time(frame_time):
         # Baseline output is not CF or Py-ART compliant. This function fixes that.
         # This is why we wrote the original output to a tempfile that can be safely removed.
         # The final grid will have all wind solutions outside the coverage region masked.
-     
-        final_grid = multidop.grid_io.make_new_grid([grid_cpol, grid_Berr], localfile.name)
-        final_grid.write(fname)
-        localfile.close()
+        try: 
+            final_grid = multidop.grid_io.make_new_grid([grid_cpol, grid_Berr], localfile.name)
+            final_grid.write(fname)
+            localfile.close()
+        except:
+            print('Failed to write final grid!')
+            return
     else:
         print('DDA grid already exists...skipping.')
 

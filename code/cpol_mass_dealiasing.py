@@ -17,15 +17,15 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 1
-start_day = 7
+start_year = 2005
+start_month = 12
+start_day = 24
 start_hour = 0
 start_minute = 1
 
-end_year = 2010
-end_month = 1
-end_day = 8
+end_year = 2005
+end_month = 12
+end_day = 25
 end_hour = 0
 end_minute = 2
 
@@ -164,6 +164,7 @@ def display_time(rad_time):
     import os
     from datetime import timedelta
     from scipy import ndimage
+    
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -171,7 +172,7 @@ def display_time(rad_time):
     out_data_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
     # CPOL in lassen or rapic?
-    cpol_format = 1    # 0 = lassen, 1 = rapic
+    cpol_format = 0    # 0 = lassen, 1 = rapic
 
     year_str = "%04d" % rad_time.year
     month_str = "%02d" % rad_time.month
@@ -183,13 +184,18 @@ def display_time(rad_time):
    
     try:
         radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
-        if(cpol_format == 1):
+        if(rad_time.year > 2007):
             ref_field = 'Refl'
             vel_field = 'Vel'
+            rhohv_field = 'RHOHV'
         else:
             ref_field = 'reflectivity'
             vel_field = 'velocity'
-    # Get sounding for 4DD intialization
+            rhohv_field = 'cross_correlation_ratio'
+
+        if(radar.nsweeps == 1):
+            return
+        # Get sounding for 4DD intialization
         one_day_ago = rad_time-timedelta(days=1, minutes=1)
         sounding_times = time_procedures.get_sounding_times(one_day_ago.year,
                                                             one_day_ago.month,
@@ -222,23 +228,17 @@ def display_time(rad_time):
         wind_profile.v = wind_profile.v_wind
         # Filter clutter and noise from velocities
 
-        #nyq_Gunn = radar.instrument_parameters['nyquist_velocity']['data'][0]
+        nyq_Gunn = radar.instrument_parameters['nyquist_velocity']['data'][0]
 	    
-        #data = ndimage.filters.generic_filter(radar.fields[vel_field]['data'],
-        #                                      pyart.util.interval_std, size = (4,4),
-        #                                      extra_arguments = (-nyq_Gunn, nyq_Gunn))
-        #filtered_data = ndimage.filters.median_filter(data, size = (4,4))
-        #texture_field = pyart.config.get_metadata(vel_field)
-        #texture_field['data'] = filtered_data
-        #radar.add_field('velocity_texture', texture_field, replace_existing = True)
-        # Dealias velocities
         gatefilter = pyart.correct.GateFilter(radar)
-        #gatefilter.exclude_below(ref_field, 0)
-        #gatefilter.exclude_below('velocity_texture', 4)
-        #gatefilter = pyart.correct.despeckle.despeckle_field(radar,
-        #                                                     ref_field,
-        #                                                     size=6,
-        #                                                     gatefilter=gatefilter	    
+        gatefilter.exclude_below(ref_field, 10)
+        gatefilter.exclude_below(rhohv_field, 0.5)
+        gatefilter.exclude_invalid(vel_field)
+        gatefilter.exclude_masked(vel_field)
+        gatefilter.exclude_invalid(ref_field)
+        gatefilter = pyart.correct.despeckle_field(vel_field, 
+                                                   gatefilter=gatefilter,
+                                                   size=10) 
         radar.add_field('sim_velocity',
                         pyart.util.simulated_vel_from_profile(radar, 
                                                               wind_profile),
@@ -246,39 +246,83 @@ def display_time(rad_time):
 	    
         corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                                                                     vel_field=vel_field,
-                                                                    gatefilter=gatefilter,
                                                                     keep_original=False,
 	                                                            centered=True,
-	                                                            interval_splits=3,
-	                                                            skip_between_rays=100,
-	                                                            skip_along_ray=100,
+	                                                            interval_splits=6,
+                                                                    gatefilter=gatefilter,
+	                                                            skip_between_rays=2000,
+	                                                            skip_along_ray=2000,
 	                                                            rays_wrap_around=True,
 	                                                            valid_min=-75,
 	                                                            valid_max=75)
+        
+        print('Dealiasing done!')
+        # Filter out regions based on deviation from sounding field to remove missed folds                                                         
+        corr_vel = corrected_velocity_4dd['data']
+        sim_velocity = radar.fields['sim_velocity']['data']
+        diff = corr_vel - radar.fields['sim_velocity']['data']
+        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])                   
         radar.add_field_like(vel_field, 
                              'corrected_velocity', 
   	                     corrected_velocity_4dd['data'],
 	                     replace_existing=True)
-        # Correct overfolds by constraining to sounding (code in Py-ART returns values too high)
-        sim_vel = radar.fields['sim_velocity']['data'][:]
-        corr_vel = radar.fields['corrected_velocity']['data'][:]
-        radar.fields['corrected_velocity']['data'] = corr_vel
-        nyq_interval = radar.instrument_parameters['nyquist_velocity']['data']
-        nyq_interval = 2*(nyq_interval[1]).mean()
-        print(nyq_interval)
-        for nsweep, sweep_slice in enumerate(radar.iter_slice()):
+ 
+        # Calculate gradient of field
+        gradient = pyart.config.get_metadata('velocity')
+        gradients = np.ma.array(np.gradient(radar.fields['corrected_velocity']['data']))
+        gradients = np.ma.masked_where(gradients < -31000,gradients)
+        gradients = gradients/(radar.instrument_parameters['nyquist_velocity']['data'][1])
+        gradient['data'] = gradients[0]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_azimuth'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_angle',
+                        gradient,
+                        replace_existing=True)
+
+        gradient = pyart.config.get_metadata('velocity')
+        gradient['data'] = gradients[1]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_range'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_range',
+                        gradient,
+                        replace_existing=True)
+
+        # Adjust sweeps to match reference velocity
+        ref_vdata = sim_velocity
+        corr_vel = corrected_velocity_4dd['data']
+        nyquist_interval = float(2*radar.instrument_parameters['nyquist_velocity']['data'][1])
+        for nsweep, sweep_slice in enumerate(radar.iter_slice()):                                                                   
+            sref = ref_vdata[sweep_slice]
             scorr = corr_vel[sweep_slice]
-            sref = sim_vel[sweep_slice]
             mean_diff = (sref - scorr).mean()
-            global_fold = round(mean_diff / nyq_interval)
-            print(global_fold)
-            if global_fold != 0:
-                corr_vel[sweep_slice] += global_fold * nyquist_interval
-        radar.fields['corrected_velocity']['data'] = corr_vel
-	    
+            if(mean_diff > -100):
+                global_fold = round(mean_diff / nyquist_interval)
+                if global_fold != 0:
+                    corr_vel[sweep_slice] += global_fold * nyquist_interval
+       
+        # Calculate difference from simulated velocity
+        diff = radar.fields['corrected_velocity']['data'] - radar.fields['sim_velocity']['data']
+        diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])     
+        radar.add_field_like('sim_velocity', 
+                             'velocity_diff', 
+                             diff, 
+                             replace_existing=True)    
+      
+        # Filter by gradient   
+        corr_vel = np.ma.masked_where(np.logical_or(np.logical_or(gradients[0] > 0.3, 
+                                                                  gradients[0] < -0.3),
+                                                    np.logical_or(diff > 2.0, 
+                                                                  diff < -0.9)),
+                                      corr_vel)
+        corrected_velocity_4dd['data'] = corr_vel
+        radar.add_field_like(vel_field, 
+                             'corrected_velocity', 
+  	                     corrected_velocity_4dd['data'],
+	                     replace_existing=True)
+	print('Filter!')    
         # Save to Cf/Radial file
         time_procedures.write_radar_to_cpol_cfradial(radar, rad_time)
-
+        
         out_path = (out_file_path +
                     '/' +
                     year_str +
@@ -312,15 +356,17 @@ def display_time(rad_time):
 
         plt.close() 
     except:
+        import sys
         print('Skipping corrupt time' +
-	      year_str + 
+              year_str + 
               '-' +
               month_str + 
-	      ' ' + 
+              ' ' + 
               hour_str + 
               ':' +
               minute_str)
-
+        print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+ 
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
                                                             start_month,
                                                             start_day,

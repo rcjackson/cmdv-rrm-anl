@@ -10,6 +10,7 @@ from ipyparallel import Client
 from time import sleep
 import time
 import time_procedures
+import sys
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -17,15 +18,15 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 11
-start_day = 22
+start_year = 2005
+start_month = 12
+start_day = 24
 start_hour = 0
 start_minute = 50 
 
-end_year = 2010
+end_year = 2005
 end_month = 12
-end_day = 1
+end_day = 25
 end_hour = 0
 end_minute = 2
 
@@ -116,7 +117,7 @@ def display_time(rad_time):
         v = Sounding_netcdf.variables['v_wind'][:]
  
         Sounding_netcdf.close()
-        steps = np.floor(len(u)/70)
+        steps = np.floor(len(u)/30)
         wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                      u[0::steps],
                                                                      v[0::steps])
@@ -125,50 +126,103 @@ def display_time(rad_time):
         wind_profile.u = wind_profile.u_wind
         wind_profile.v = wind_profile.v_wind
          
-        print(wind_profile)
         # Dealias velocities
         gatefilter = pyart.correct.GateFilter(radar)
-#       gatefilter.exclude_below(ref_field, 0)
-             
+        gatefilter.exclude_below(ref_field, 5)
+        gatefilter.exclude_invalid(vel_field)
+        gatefilter.exclude_masked(vel_field)
+        gatefilter.exclude_invalid(ref_field) 
+        gatefilter = pyart.correct.despeckle_field(radar,
+                                                   vel_field, 
+                                                   gatefilter=gatefilter,
+                                                   size=50)     
         radar.add_field('sim_velocity',
                         pyart.util.simulated_vel_from_profile(radar, 
                                                               wind_profile),
                         replace_existing = True)
-
+        nyq = radar.instrument_parameters['nyquist_velocity']['data'][1]
+        
         corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
                                                                     vel_field=vel_field,
-                                                                    gatefilter=gatefilter,
                                                                     keep_original=False,
                                                                     centered=True,
-                                                                    interval_splits=3,
-                                                                    skip_between_rays=100,
-                                                                    skip_along_ray=1000,
+                                                                    gatefilter=gatefilter,
+                                                                    interval_splits=6,
+                                                                    skip_between_rays=2200,
+                                                                    skip_along_ray=2200,
                                                                     rays_wrap_around=True,
                                                                     valid_min=-75,
-                                                                    valid_max=75)
+                                                                    valid_max=75,
+                                                                    nyquist_velocity=nyq)
               
-
+        # Filter out regions based on deviation from sounding field to remove missed folds                                                         
+        corr_vel = corrected_velocity_4dd['data']
+        sim_velocity = radar.fields['sim_velocity']['data']
+        diff = corr_vel - sim_velocity
+        diff = diff/(nyq)                   
         radar.add_field_like(vel_field, 
                              'corrected_velocity', 
-                             corrected_velocity_4dd['data'],
-                             replace_existing=True)
-        # Correct overfolds by constraining to sounding (code in Py-ART returns values too high)
-        sim_vel = radar.fields['sim_velocity']['data'][:]
-        corr_vel = radar.fields['corrected_velocity']['data'][:]
-        radar.fields['corrected_velocity']['data'] = corr_vel
-        nyq_interval = radar.instrument_parameters['nyquist_velocity']['data']
-        nyq_interval = 2*(nyq_interval[1]).mean()
-        for nsweep, sweep_slice in enumerate(radar.iter_slice()):
+  	                     corrected_velocity_4dd['data'],
+	                     replace_existing=True)
+ 
+        # Calculate gradient of field
+        gradient = pyart.config.get_metadata('velocity')
+        gradients = np.ma.array(np.gradient(radar.fields['corrected_velocity']['data']))
+        gradients = np.ma.masked_where(gradients < -31000,gradients)
+        gradients = gradients/nyq
+        gradient['data'] = gradients[0]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_azimuth'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_angle',
+                        gradient,
+                        replace_existing=True)
+
+        gradient = pyart.config.get_metadata('velocity')
+        gradient['data'] = gradients[1]
+        gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_range'
+        gradient['units'] = 'meters per second per gate (divided by Vn)'
+        radar.add_field('gradient_wrt_range',
+                        gradient,
+                        replace_existing=True)
+
+        # Calculate difference from simulated velocity  
+        radar.add_field_like('sim_velocity', 
+                             'velocity_diff', 
+                             diff, 
+                             replace_existing=True) 
+        
+        # Adjust sweeps to match reference velocity
+        ref_vdata = sim_velocity
+        corr_vel = corrected_velocity_4dd['data']
+        nyquist_interval = float(2*nyq)
+        for nsweep, sweep_slice in enumerate(radar.iter_slice()):                                                                   
+            sref = ref_vdata[sweep_slice]
             scorr = corr_vel[sweep_slice]
-            sref = sim_vel[sweep_slice]
             mean_diff = (sref - scorr).mean()
-            global_fold = round(mean_diff / nyq_interval)
-            print(global_fold)
-            if global_fold != 0:
-                corr_vel[sweep_slice] += global_fold * nyquist_interval
-
-        radar.fields['corrected_velocity']['data'] = corr_vel
-
+            if(mean_diff > -100):
+                global_fold = round(mean_diff / nyquist_interval)
+                if global_fold != 0:
+                    corr_vel[sweep_slice] += global_fold * nyquist_interval
+            
+        # Filter by devation from sounding  
+        fifth_percentile = np.percentile(diff[diff > -100], 10) 
+        ninety_fifth_percentile = np.percentile(diff[diff > -100], 90) 
+        if(ninety_fifth_percentile > 2.5):
+            ninety_fifth_percentile = 2.5
+        if(fifth_percentile < -1.0):
+            fifth_percentile = -1.0
+        inds2 = np.logical_or(diff < fifth_percentile, diff > ninety_fifth_percentile)
+        inds1 = np.logical_and(corr_vel < -nyq/2, sim_velocity > nyq/2)
+        inds2 = np.logical_and(corr_vel > nyq/2, sim_velocity < -nyq/2)
+        corr_vel = np.ma.masked_where(np.logical_or(inds1,inds2), corr_vel)        
+        corrected_velocity_4dd['data'] = corr_vel
+        radar.add_field_like(vel_field, 
+                             'corrected_velocity', 
+  	                     corrected_velocity_4dd['data'],
+	                     replace_existing=True)
+	gatefilter = pyart.correct.despeckle_field(radar,
+                                                   'corrected_velocity', 
+                                                   size=50)         
         time_procedures.write_radar_to_berr_cfradial(radar, rad_time)
         last_Radar = radar
         out_path = (out_file_path +
@@ -198,11 +252,12 @@ def display_time(rad_time):
         display.plot_ppi('corrected_velocity', 
                          sweep=0,
 	                 cmap=pyart.graph.cm.NWSVel,
-                         vmin=-30,
+                         vmin=-30, gatefilter=gatefilter,
                          vmax=30)
         plt.savefig(out_path + out_file)
         plt.close() 
     except:
+        import sys
         print('Skipping corrupt time' +
               year_str + 
               '-' +
@@ -211,6 +266,8 @@ def display_time(rad_time):
               hour_str + 
               ':' +
               minute_str)
+        print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+
 
 times,dates = time_procedures.get_radar_times_berr_cfradial(start_year, 
                                                             start_month,
@@ -229,7 +286,7 @@ print(dates)
 #for rad_time in times:
 #    display_time(rad_time)
 
-serial = 0
+serial = 1
 
 if(serial == 0):
     # Get iPython cluster

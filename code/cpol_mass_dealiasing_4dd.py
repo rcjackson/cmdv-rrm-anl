@@ -10,23 +10,25 @@ from ipyparallel import Client
 from time import sleep
 import time
 import time_procedures
+from scipy.stats import gaussian_kde
+from scipy.signal import argrelextrema
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-out_file_path = '/home/rjackson/quicklook_plots/'
+out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2010
-start_month = 3
-start_day = 26
-start_hour = 0
+start_year = 2011
+start_month = 1
+start_day = 28
+start_hour = 16
 start_minute = 1
 
-end_year = 2010
-end_month = 3
-end_day = 27
-end_hour = 0
+end_year = 2011
+end_month = 1
+end_day = 28
+end_hour = 23
 end_minute = 2
 
 def display_time(rad_date):
@@ -39,11 +41,13 @@ def display_time(rad_date):
     from matplotlib import pyplot as plt
     import os
     from datetime import timedelta
+    from scipy.stats import gaussian_kde
+    from scipy.signal import argrelextrema
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
-    out_file_path = '/home/rjackson/quicklook_plots/'
-    out_data_path = '/home/rjackson/data/radar/cpol/'
+    out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
+    out_data_path = '/lcrc/group/earthscience/rjackson/cpol/'
 
     # CPOL in lassen or rapic?
     cpol_format = 1    # 0 = lassen, 1 = rapic
@@ -73,19 +77,27 @@ def display_time(rad_date):
                         '.rapic')
         radar = pyart.aux_io.read_radx(file_name_str)
         return radar 
+
+    def kde_scipy(x, x_grid, bandwidth=0.2, **kwargs):
+        """Kernel Density Estimation with Scipy"""
+        # Note that scipy weights its bandwidth by the covariance of the
+        # input data.  To make the results comparable to the other methods,
+        # we divide the bandwidth by the sample standard deviation here.
+        kde = gaussian_kde(x, bw_method=bandwidth / x.std(ddof=1), **kwargs)
+        return kde.evaluate(x_grid)
     
     one_day_later = rad_date+timedelta(days=1)
-    times, dates = time_procedures.get_radar_times_cpol_rapic(rad_date.year, 
-                                                              rad_date.month,
-                                                              rad_date.day,
-                                                              1, 
-                                                              1,
-                                                              one_day_later.year, 
-                                                              one_day_later.month,
-                                                              one_day_later.day,
-                                                              0, 
-                                                              1,
-                                                              )
+    times, dates = time_procedures.get_radar_times_cpol_cfradial(rad_date.year, 
+                                                                 rad_date.month,
+                                                                 rad_date.day,
+                                                                 1, 
+                                                                 1,
+                                                                 one_day_later.year, 
+                                                                 one_day_later.month,
+                                                                 one_day_later.day,
+                                                                 0, 
+                                                                 1,
+                                                                 )
     print(times)
     for rad_time in times:
         year_str = "%04d" % rad_time.year
@@ -139,7 +151,7 @@ def display_time(rad_date):
             u = Sounding_netcdf.variables['u_wind'][:]
             v = Sounding_netcdf.variables['v_wind'][:]
             Sounding_netcdf.close()
-            steps = np.floor(len(u)/20)
+            steps = np.floor(len(u)/50)
             wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                          u[0::steps],
                                                                          v[0::steps])
@@ -153,7 +165,21 @@ def display_time(rad_date):
             gatefilter = pyart.correct.despeckle.despeckle_field(radar,
                                                                  vel_field)
             gatefilter.exclude_below(ref_field, 0)
-                 
+            vels = pyart.correct.dealias._create_rsl_volume(radar, 
+                                                'Vel', 
+                                                0, 
+                                                -9999.0, 
+                                                excluded=None)
+            for i in range(0,17):
+                sweep = vels.get_sweep(i)
+                ray0 = sweep.get_ray(0)
+                ray50 = sweep.get_ray(50)
+                diff = ray0.azimuth-ray50.azimuth 
+                if(diff > 180.0):
+                    diff = 360.0 - diff    
+                if(abs(diff)/50.0 < 0.8):
+                    print('Corrupt azimuthal angle data....skipping file!')
+                    raise Exception('Corrupt azimuthal angles!')     
                 
             #corrected_velocity_4dd = pyart.correct.dealias_region_based(radar,
             #                                                            vel_field=vel_field,
@@ -165,32 +191,74 @@ def display_time(rad_date):
             #                                                            rays_wrap_around=True,
             #                                                            valid_min=-75,
             #                                                            valid_max=75)
-            try:
+            if(last_Radar.nsweeps == radar.nsweeps):
+                    try:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              last_Radar=radar,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              )
+                    except:
+                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
+                                                                              vel_field=vel_field,
+                                                                              keep_original=False,
+                                                                              filt=1,
+                                                                              sonde_profile=wind_profile,
+                                                                              )
+            else:
                 corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
                                                                       vel_field=vel_field,
-                                                                      gatefilter=gatefilter,
                                                                       keep_original=False,
-                                                                      last_radar=last_Radar,
-                                                                      sign=-1,
                                                                       filt=1,
                                                                       sonde_profile=wind_profile,
-                                                                      ba_mincount=5,
-                                                                      ) 
-            except:
-                corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                      vel_field=vel_field,
-                                                                      gatefilter=gatefilter,
-                                                                      keep_original=False,
-                                                                      sign=1,
-                                                                      filt=1,
-                                                                      sonde_profile=wind_profile,
-                                                                      ba_mincount=5, 
-                                                                      ) 
+                                                                      )
+
+            radar.add_field_like(vel_field, 
+                             'corrected_velocity', 
+  	                     corrected_velocity_4dd['data'],
+	                     replace_existing=True)
+ 
+            # Calculate gradient of field
+            gradient = pyart.config.get_metadata('velocity')
+            gradients = np.ma.array(np.gradient(radar.fields['corrected_velocity']['data']))
+            gradients = np.ma.masked_where(gradients < -31000,gradients)
+            gradients = gradients/(radar.instrument_parameters['nyquist_velocity']['data'][1])
+            gradient['data'] = gradients[0]
+            gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_azimuth'
+            gradient['units'] = 'meters per second per gate (divided by Vn)'
+            radar.add_field('gradient_wrt_angle',
+                            gradient,
+                            replace_existing=True)
+
+            gradient = pyart.config.get_metadata('velocity')
+            gradient['data'] = gradients[1]
+            gradient['standard_name'] = 'gradient_of_corrected_velocity_wrt_range'
+            gradient['units'] = 'meters per second per gate (divided by Vn)'
+            radar.add_field('gradient_wrt_range',
+                            gradient,
+                            replace_existing=True)
+
+            # Calculate difference from simulated velocity
+            diff = radar.fields['corrected_velocity']['data'] - radar.fields['sim_velocity']['data']
+            diff = diff/(radar.instrument_parameters['nyquist_velocity']['data'][1])     
+            radar.add_field_like('sim_velocity', 
+                                 'velocity_diff', 
+                                 diff, 
+                                 replace_existing=True)    
+            
+            # Filter by gradient   
+            corr_vel = corrected_velocity_4dd['data']
+            corr_vel = np.ma.masked_where(np.logical_or(gradients[0] > 0.3, 
+                                                        gradients[0] < -0.3)),
+                                          corr_vel)
+            
+            corrected_velocity_4dd['data'] = corr_vel
             radar.add_field_like(vel_field, 
                                  'corrected_velocity', 
-                                 corrected_velocity_4dd['data'],
-                                 replace_existing=True)
-  
+  	                         corrected_velocity_4dd['data'],
+	                         replace_existing=True)
             # Save to Cf/Radial file
             time_procedures.write_radar_to_cpol_cfradial(radar, rad_time)
             last_Radar = radar
@@ -206,7 +274,7 @@ def display_time(rad_date):
                 os.makedirs(out_path)
 
             out_file = hour_str + minute_str + '.png'
-            plt.figure(figsize=(7,14))
+            plt.figure(figsize=(7,16))
             plt.subplot(211)
             display = pyart.graph.RadarMapDisplay(radar)
             display.plot_ppi(ref_field, 
@@ -224,6 +292,7 @@ def display_time(rad_date):
             plt.savefig(out_path + out_file)
             plt.close() 
         except:
+            import sys
             print('Skipping corrupt time' +
                   year_str + 
                   '-' +
@@ -232,18 +301,19 @@ def display_time(rad_date):
                   hour_str + 
                   ':' +
                   minute_str)
+            print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
  
-times,dates = time_procedures.get_radar_times_cpol_rapic(start_year, 
-                                                         start_month,
-                                                         start_day,
-                                                         start_hour, 
-                                                         start_minute,
-                                                         end_year, 
-                                                         end_month,
-                                                         end_day,
-                                                         end_hour, 
-                                                         end_minute,
-                                                         )
+times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
+                                                            start_month,
+                                                            start_day,
+                                                            start_hour, 
+                                                            start_minute,
+                                                            end_year, 
+                                                            end_month,
+                                                            end_day,
+                                                            end_hour, 
+                                                            end_minute,
+                                                            )
 print(dates)
 
 serial = 1
@@ -277,7 +347,7 @@ if(serial == 0):
 
     #Map the code and input to all workers
     result = My_View.map_async(display_time, dates)
-
+    result.display_output()
     #Reduce the result to get a list of output
     qvps = result.get()
     tt = time.time() - t1
