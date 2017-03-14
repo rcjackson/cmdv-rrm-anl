@@ -66,7 +66,6 @@ def get_dda_times(start_year, start_month, start_day,
 
     deltatime = end_time - start_time
 
-
     if(deltatime.seconds > 0 or deltatime.minute > 0):
         no_days = deltatime.days + 1
     else:
@@ -78,7 +77,6 @@ def get_dda_times(start_year, start_month, start_day,
     days = np.arange(0, no_days, 1)
     print('We are about to load grid files for ' + str(no_days) + ' days')
     
-
     # Find the list of files for each day
     cur_time = start_time
  
@@ -95,7 +93,6 @@ def get_dda_times(start_year, start_month, start_day,
                       day_str +
                       '*.nc')
     
-    
         print('Looking for files with format ' + format_str)
           
         data_list = glob.glob(format_str)
@@ -103,7 +100,6 @@ def get_dda_times(start_year, start_month, start_day,
         for j in range(0, len(data_list)):
             file_list.append(data_list[j])
         cur_time = cur_time + timedelta(days=1)
-    
     
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
@@ -132,7 +128,6 @@ def get_dda_times(start_year, start_month, start_day,
     time_list_final = []
     past_time = []
     
-    
     for times in time_list_sorted: 
         
         cur_time = times  
@@ -141,14 +136,10 @@ def get_dda_times(start_year, start_month, start_day,
             past_time = cur_time
             
         if(cur_time - past_time >= timedelta(minutes=minute_interval)
-           and cur_time >= start_time and cur_time <= end_time):
-            
+           and cur_time >= start_time and cur_time <= end_time): 
             time_list_final.append(cur_time)
             past_time = cur_time
            
-            
-            
-    
     return time_list_final
 
 # Get a Radar object given a time period in the CPOL dataset
@@ -187,6 +178,7 @@ def get_updrafts(time):
     w = pyart_grid.fields['upward_air_velocity']['data']
     updraft_depth = np.zeros(w[0].shape)
     z = pyart_grid.fields['reflectivity']['data']
+    bca = np.ma.masked_invalid(bca)
     for levels in range(0,num_levels-1):
         outside_dd_lobes = np.logical_or(bca < math.pi/6, 
                                          bca > 5*math.pi/6)
@@ -210,10 +202,11 @@ def get_updrafts(time):
     for levels in range(0,num_levels-1):
         invalid_w = np.logical_or(w[levels] < -99, w[levels] > 99)
         outside_updraft = np.logical_or(updraft_depth < 10, z[levels] < 1)
+        outside_updraft_and_lobes = np.logical_or(outside_updraft, 
+                                                  outside_dd_lobes)
         w[levels] = np.ma.masked_where(np.logical_or(invalid_w, 
-                                                     np.logical_or(outside_updraft,
-                                                                   outside_dd_lobes))
-                                      , w[levels])
+                                                     outside_updraft_and_lobes)
+                                       , w[levels])
     w[w.mask == True] = np.nan
         
     # Make new array that is 1 by num_levels by 81 by 111
@@ -230,7 +223,8 @@ times = get_dda_times(start_year, start_month, start_day,
                       end_month, end_day, end_hour, 
                       end_minute, minute_interval=0)
 
-in_netcdf = Dataset('/lcrc/group/earthscience/rjackson/data/Pope_regime.cdf', mode='r')            
+in_netcdf = Dataset('/lcrc/group/earthscience/rjackson/data/Pope_regime.cdf', 
+                    mode='r')            
 year = in_netcdf.variables['year'][:]
 month = in_netcdf.variables['month'][:]
 day = in_netcdf.variables['day'][:]
@@ -242,6 +236,10 @@ for i in range(0,len(day)):
                               month=int(month[i]),
                               day=int(day[i])))
 
+# Since grids are uniform, calculate beam crossing angle for first grid and
+# apply to all
+first_grid = get_grid_from_dda(times[0])
+bca = get_bca(first_grid) 
 num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
@@ -283,23 +281,39 @@ z_hist = np.ma.zeros((num_levels, len(bins_z)-1))
 ws = [da.from_delayed(arrays, shape=(num_levels,81,111),
                       dtype=float) for arrays in ws]
 ws = da.stack(ws, axis=0)
-print(ws.shape)
+ 
 import time
 for levels in range(0,num_levels):
     t1 = time.time()  
     w_level = ws[:,levels,:,:]   
-    w_level = np.array(w_level.compute())
     print(str(levels) + '/' + str(num_levels))
     array_shape = w_level.shape
+    # Take chunks of w_level and remove NaNs
+    w_new = []
+    for i in range(0, array_shape[0], int(array_shape[0]/10)):
+        print('Processing chunk ' + str(i))
+        w_chunk = np.array(w_level[i:(i+int(array_shape[0]/10)),:,:])
+        w_chunk = w_chunk[~np.isnan(w_chunk)]
+        w_new.append(w_chunk.flatten())
+    
+    w_new = np.concatenate(w_new)
+    w_new = w_new.flatten()
+    print(w_new)
     num_elems = array_shape[0]*array_shape[1]*array_shape[2]    
-    print(w_level.shape)
-    means = np.nanmean(w_level, axis=(0,1)) 
-    mean_w[levels] = np.nanmean(w_level)
-    w_level = np.array(w_level)
-    median_w[levels] = np.nanpercentile(w_level, 50)
-    ninety_w[levels] = np.nanpercentile(w_level, 90)
-    ninety_five_w[levels] = np.nanpercentile(w_level, 95)
-    ninety_nine_w[levels] = np.nanpercentile(w_level, 99)
+    print(w_new.shape)
+    print(mean_w.shape)
+    if(len(w_new) > 0):
+        mean_w[levels] = np.nanmean(w_new)  
+        median_w[levels] = np.nanpercentile(w_new, 50)
+        ninety_w[levels] = np.nanpercentile(w_new, 90)
+        ninety_five_w[levels] = np.percentile(w_new, 95)
+        ninety_nine_w[levels] = np.percentile(w_new, 99)
+    else:
+        mean_w[levels] = np.nan
+        median_w[levels] = np.nan
+        ninety_w[levels] = np.nan
+        ninety_five_w[levels] = np.nan
+        ninety_nine_w[levels] = np.nan
     t2 = time.time() - t1
     print('Total time in s: ' + str(t2))
     print('Time per scan = ' + str(t2/array_shape[0]))
@@ -327,6 +341,11 @@ n5_file = out_netcdf.createVariable('ninety_five', ninety_five_w.dtype, ('levels
 n5_file.long_name = '95W w'
 n5_file.units = 'm s-1'
 n5_file[:] = ninety_five_w
+
+n5_file = out_netcdf.createVariable('ninety_nine', ninety_five_w.dtype, ('levels',))
+n5_file.long_name = '99W w'
+n5_file.units = 'm s-1'
+n5_file[:] = ninety_nine_w
 
 z_file = out_netcdf.createVariable('z', ninety_five_w.dtype, ('levels',))
 z_file.long_name = 'z'
