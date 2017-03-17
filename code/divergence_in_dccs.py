@@ -183,7 +183,7 @@ def get_updrafts(time):
     v = pyart_grid.fields['northward_wind']['data']   
     u[u.mask == True] = np.nan
     v[v.mask == True] = np.nan                            
-    divergence = np.gradient(u, axis=2)/1000 + np.gradient(v, axis=1)/1000
+    divergence = np.gradient(u, 1e6, axis=2) + np.gradient(v, 1e6, axis=1)
     for levels in range(0,num_levels-1):
         w_outside_updraft = np.logical_or(w[levels] < 1, w[levels] > 99.0)
         outside_dd_lobes = np.logical_or(bca < math.pi/6, bca > 5*math.pi/6)
@@ -216,7 +216,7 @@ def get_updrafts(time):
                                                         structure=six_connected_structure)
     
     # Get statistics in continous regions
-    index=np.arange(0, num_updrafts + 1)
+    index = np.arange(0, num_updrafts + 1)
     max_z = ndimage.measurements.maximum(grid_z, 
                                          labels=updrafts, 
                                          index=index)
