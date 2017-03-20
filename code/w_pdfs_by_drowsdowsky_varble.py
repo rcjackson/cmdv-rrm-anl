@@ -317,7 +317,7 @@ print('Doing parallel grid loading...')
 import time
 t1 = time.time()
 ws = []
-for i in range(0, len(pope_times), int(len(dros_times)/4)):
+for i in range(0, len(dros_times), int(len(dros_times)/4)):
     ws_temp = [get_file(times) for times in dros_times[i:(i+len(dros_times)/4)]]
     ws_temp = compute(*ws_temp)
     ws.append(ws_temp)
@@ -330,7 +330,7 @@ ws = np.concatenate([np.concatenate(arrays) for arrays in ws])
 
 t2 = time.time() - t1
 print('Total time in s: ' + str(t2))
-print('Time per scan = ' + str(t2/len(pope_times)))
+print('Time per scan = ' + str(t2/len(dros_times)))
 level_individual = ws[:,1] 
 w_individual = ws[:,0]
 print(len(level_individual))
@@ -353,7 +353,7 @@ for levels in range(0,num_levels):
 print('Writing netCDF file...')
 
 # Save to netCDF file
-out_netcdf = Dataset('wpdfregime_dros' + str(pope_regime) + '_varble.cdf', 'w')
+out_netcdf = Dataset('wpdfregime_dros' + str(dros_regime) + '_varble.cdf', 'w')
 out_netcdf.createDimension('levels', num_levels)
 mean_file = out_netcdf.createVariable('mean', mean_w.dtype, ('levels',))
 mean_file.long_name = 'Mean w'
