@@ -269,9 +269,9 @@ month = in_netcdf.variables['month'][:]
 day = in_netcdf.variables['day'][:]
 groups = in_netcdf.variables['groups'][:]
 
-popedates = []
+drosdates = []
 for i in range(0,len(day)):
-    popedates.append(datetime(year=int(year[i]),
+    drosdates.append(datetime(year=int(year[i]),
                               month=int(month[i]),
                               day=int(day[i])))
 
@@ -282,18 +282,18 @@ bca = get_bca(first_grid)
 num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
-pope_regime = int(sys.argv[2])
+dros_regime = int(sys.argv[2])
 
-# Filter out data not in Pope regime
-pope_times = []
+# Filter out data not in Drosdowsky regime
+dros_times = []
 for time in times:
-    # Look for date in Pope regime data
+    # Look for date in Drosdwosky regime data
     cur_date = datetime(year=time.year, month=time.month, day=time.day)
-    inds = np.where([day <= cur_date for day in popedates])
-    pope_index = inds[0][-1]
-    if(groups[pope_index] == pope_regime):
-        print((popedates[pope_index], time))
-        pope_times.append(time)
+    inds = np.where([day <= cur_date for day in drosdates])
+    dros_index = inds[0][-1]
+    if(groups[dros_index] == dros_regime):
+        print((drosdates[dros_index], time))
+        dros_times.append(time)
 
 in_netcdf.close()
 
@@ -317,8 +317,8 @@ print('Doing parallel grid loading...')
 import time
 t1 = time.time()
 ws = []
-for i in range(0, len(pope_times), int(len(pope_times)/4)):
-    ws_temp = [get_file(times) for times in pope_times[i:(i+len(pope_times)/4)]]
+for i in range(0, len(pope_times), int(len(dros_times)/4)):
+    ws_temp = [get_file(times) for times in dros_times[i:(i+len(dros_times)/4)]]
     ws_temp = compute(*ws_temp)
     ws.append(ws_temp)
 
