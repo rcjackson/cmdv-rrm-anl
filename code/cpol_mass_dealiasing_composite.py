@@ -12,6 +12,9 @@ import time
 import time_procedures
 from scipy.stats import gaussian_kde
 from scipy.signal import argrelextrema
+from csu_radartools import csu_kdp
+from numba import jit
+import sys
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -19,15 +22,15 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/cpol/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2009
-start_month = 11
-start_day = 1
+start_year = int(sys.argv[1])
+start_month = int(sys.argv[2])
+start_day = int(sys.argv[3])
 start_hour = 1
 start_minute = 1
 
-end_year = 2010
-end_month = 3
-end_day = 9
+end_year = int(sys.argv[4])
+end_month = int(sys.argv[5])
+end_day = int(sys.argv[6])
 end_hour = 1
 end_minute = 2
 
@@ -76,7 +79,50 @@ def display_time(rad_date):
                         'Gunn_Pt' +
                         '.rapic')
         radar = pyart.aux_io.read_radx(file_name_str)
-        return radar     
+        return radar 
+    def extract_unmasked_data(radar, field, bad=-32768):
+        """Simplify getting unmasked radar fields from Py-ART"""
+        return deepcopy(radar.fields[field]['data'].filled(fill_value=bad))
+
+    @jit(nopython=True, cache=True)
+    def get_fold_position(the_phidp):
+ 
+        tmp = the_phidp
+        rth_pos = np.zeros((tmp.shape[0]), dtype=np.int32)    
+        for j in range(tmp.shape[0]):
+            for i in range(50, tmp.shape[1]):
+                if the_phidp[j, i] < -20:    
+                    rth_pos[j] = i
+                    break
+                
+        return rth_pos
+
+
+    @jit(nopython=True, cache=True)
+    def unfold_phidp(the_phidp, rth_position):
+        tmp = the_phidp
+        for j in range(len(rth_position)):
+            i = rth_position[j]
+            if i == 0:
+                continue
+            else:
+                tmp[j, i:] += 180
+        return tmp
+
+    #@jit(cache=True)
+    def refold_vdop(vdop_art, v_nyq_vel, rth_position):
+        tmp = vdop_art
+        for j in range(len(rth_position)):
+            i = rth_position[j]
+            if i == 0:
+                continue
+            else:
+                tmp[j, i:] += v_nyq_vel
+    
+        pos = (vdop_art > v_nyq_vel)
+        tmp[pos] = tmp[pos] - 2*v_nyq_vel
+        return tmp
+        
     one_day_later = rad_date+timedelta(days=1)
     times, dates = time_procedures.get_radar_times_cpol_cfradial(rad_date.year, 
                                                                  rad_date.month,
@@ -89,7 +135,12 @@ def display_time(rad_date):
                                                                  0, 
                                                                  2,
                                                                  )
+  
     print(times)
+    rerun_multidop_list = open('/home/rjackson/grids_to_regenerate/folds' + 
+                               str(rad_date.year) + 
+                               str(rad_date.month) + 
+                               str(rad_date.day), mode='w+')
     for rad_time in times:
         year_str = "%04d" % rad_time.year
         month_str = "%02d" % rad_time.month
@@ -117,12 +168,13 @@ def display_time(rad_date):
                 vel_field = 'Vel'
                 ref_threshold = 0
                 rhohv_field = 'RHOHV'
+                phidp_field = 'PHIDP'
             else:
                 ref_field = 'reflectivity'
                 vel_field = 'velocity'
                 ref_threshold = 5
                 rhohv_field = 'cross_correlation_ratio'
-
+                phidp_field = 'specific_differential_phase'
             if(radar.nsweeps == 1):
                 raise Exception('Radar only has one sweep!')
             if(not 'last_Radar' in locals()):
@@ -166,7 +218,7 @@ def display_time(rad_date):
             # Region based hangs before 2006 hangs on noise w/Z < 10 dBZ
             gatefilter.exclude_below(ref_field, ref_threshold)
             try:
-                gatefilter.exclude_below(rhohv_field, 0.5)
+                gatefilter.exclude_below(rhohv_field, 0.6)
             except KeyError: 
                 print('No rho HV data! Disabling Rho HV mask!')
             gatefilter.exclude_masked(vel_field)
@@ -176,6 +228,46 @@ def display_time(rad_date):
             gatefilter.exclude_above(ref_field, 80)
             gatefilter.exclude_below(vel_field, -75)
             gatefilter.exclude_above(vel_field, 75)
+            # Look for phiDP folds and correct velocities
+            try:
+                dz = radar.fields[ref_field]['data']
+                dp = radar.fields[phidp_field]['data']
+                r, azi = radar.range['data'], radar.azimuth['data']
+                rng2d, az2d = np.meshgrid(radar.range['data'], radar.azimuth['data'])
+                kdN, fdN, sdN = csu_kdp.calc_kdp_bringi(dp=dp, dz=dz, rng=rng2d/1000.0, thsd=24, gs=250.0, window=4)
+                kdN = np.ma.MaskedArray(kdN)
+                kdN[kdN == -32768] = np.ma.masked
+
+                fdN = np.ma.MaskedArray(fdN)
+                fdN[fdN == -32768] = np.ma.masked
+
+                sdN = np.ma.MaskedArray(sdN)
+                sdN[sdN == -32768] = np.ma.masked 
+                  
+                phidp_fold = deepcopy(fdN)
+                rth = get_fold_position(phidp_fold)
+                print(rth)
+                vdop_art = radar.fields[vel_field]['data']
+                v_nyq_vel = radar.instrument_parameters['nyquist_velocity']['data'][0]
+                vdop_refolded = refold_vdop(vdop_art, v_nyq_vel, rth)
+                radar.add_field_like(vel_field, 'vdop_phidp_fold_corrected', 
+                                     vdop_refolded, replace_existing=True)
+                vel_field='vdop_phidp_fold_corrected'
+                 
+                # Tell me if fold is within 60 km of CPOL and write to file (for multidop reprocessing purposes)
+                for fold_starts in radar.range['data'][rth]:
+                    if(fold_starts > 20000 and fold_starts < 60000):
+                        print('Fold in DD domain at ' + str(fold_starts/1e3) + ' km')
+                        rerun_multidop_list.write(rad_time.strftime('%m/%j/%Y %H:%M:%S'))
+            except:
+                import sys
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                print('Cant run phiDP unfolding!')
+                print('Exception: ' + str(sys.exc_info()[0]) 
+                                    + str(sys.exc_info()[1])
+                                    + str(exc_tb.tb_lineno))
+ 
+
             print('Running 4DD...')
             vels = pyart.correct.dealias._create_rsl_volume(radar, 
                                                             vel_field, 
@@ -289,6 +381,7 @@ def display_time(rad_date):
                   ':' +
                   minute_str)
             print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+    rerun_multidop_list.close()    
  
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
                                                             start_month,
