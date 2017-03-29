@@ -13,6 +13,8 @@ from dask import delayed, compute
 import time
 import sys
 from scipy import ndimage
+import pandas
+
 
 # Start a cluster with x workers
 cluster = LocalCluster(n_workers=int(sys.argv[1]))
@@ -34,7 +36,7 @@ end_minute = 00
 end_second = 0
 
 data_path = '/lcrc/group/earthscience/rjackson/multidop_grids/ddop/'
-
+mjo_index_file = '/home/rjackson/data/rmm.74toRealtime.txt'
 
 # get_radar_times
 #     start_year = Start year of animation
@@ -233,7 +235,7 @@ def get_updrafts(time):
             indicies = np.ma.where(label_level == labels)                                
                         
             if(len(indicies[0]) > 0  
-               and max_z[labels] >= 15000
+               and max_z[labels] >= 6000
                and min_z[labels] <= 1000):
                 max_w_individual.append(max(w_temp[indicies]))
                 level_individual.append(levels)
@@ -258,12 +260,13 @@ def get_updrafts(time):
     return return_array
        
 
-# Plot the radars from given time.
+# Get the radars for a specific time
 times = get_dda_times(start_year, start_month, start_day,
                       start_hour, start_minute, end_year,
                       end_month, end_day, end_hour, 
                       end_minute, minute_interval=0)
 
+# Load Pope regimes
 in_netcdf = Dataset('/lcrc/group/earthscience/rjackson/data/Pope_regime.cdf', 
                     mode='r')            
 year = in_netcdf.variables['year'][:]
@@ -277,6 +280,21 @@ for i in range(0,len(day)):
                               month=int(month[i]),
                               day=int(day[i])))
 
+# Load MJO index
+data = pandas.read_csv(mjo_index_file,
+                       header=2,
+                       delim_whitespace=True)
+data_matrix = np.ma.array(data.values)
+year = data_matrix[:,0]
+month = data_matrix[:,1]
+day = data_matrix[:,2]
+index = data_matrix[:,5]
+mjodates = []
+for i in range(0, len(day)):
+    mjodates.append(datetime(year=int(year[i]),
+                             month=int(month[i]),
+                             day=int(day[i])))
+
 # Since grids are uniform, calculate beam crossing angle for first grid and
 # apply to all
 first_grid = get_grid_from_dda(times[0])
@@ -285,6 +303,7 @@ num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
 pope_regime = int(sys.argv[2])
+mjo_index = int(sys.argv[3])
 
 # Filter out data not in Pope regime
 pope_times = []
@@ -351,11 +370,15 @@ for levels in range(0,num_levels):
         ninety_w[levels] = np.nan
         ninety_five_w[levels] = np.nan
         ninety_nine_w[levels] = np.nan
-            
+
+print(mean_w)           
 print('Writing netCDF file...')
-print(mean_w)
 # Save to netCDF file
-out_netcdf = Dataset('wpdfregime' + str(pope_regime) + '_varble.cdf', 'w')
+out_netcdf = Dataset('wpdfregime' + 
+                     str(pope_regime) + 
+                     '_MJO' + 
+                     str(mjo_index) + 
+                     '_varble.cdf', 'w')
 out_netcdf.createDimension('levels', num_levels)
 mean_file = out_netcdf.createVariable('mean', mean_w.dtype, ('levels',))
 mean_file.long_name = 'Mean w'

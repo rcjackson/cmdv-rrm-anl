@@ -179,7 +179,11 @@ def get_updrafts(time):
     w = pyart_grid.fields['upward_air_velocity']['data']
     z = pyart_grid.fields['reflectivity']['data']
     bca = np.ma.masked_invalid(bca)
-
+    u = pyart_grid.fields['eastward_wind']['data']
+    v = pyart_grid.fields['northward_wind']['data']   
+    u[u.mask == True] = np.nan
+    v[v.mask == True] = np.nan                            
+    divergence = np.gradient(u, axis=2)/1000 + np.gradient(v, axis=1)/1000
     for levels in range(0,num_levels-1):
         w_outside_updraft = np.logical_or(w[levels] < 1, w[levels] > 99.0)
         outside_dd_lobes = np.logical_or(bca < math.pi/6, bca > 5*math.pi/6)
@@ -187,8 +191,7 @@ def get_updrafts(time):
                                                      outside_dd_lobes), w[levels])
         z[levels] = np.ma.masked_where(np.logical_or(w_outside_updraft,
                                                      outside_dd_lobes), z[levels])
-       
-
+        
     grid_z = pyart_grid.point_z['data']
 
     # Set mask to exclude data outside of updrafts
@@ -218,46 +221,48 @@ def get_updrafts(time):
                                          labels=updrafts,
                                          index=index)
     
-    max_w_individual = []
+    div_individual = []
     level_individual = []
     label_individual = []
     count_individual = []
+
     # Find deep convective cores and get max updraft speeds
     for levels in range(0,num_levels-1):
         label_level = updrafts[levels]
         masked_array = np.ma.zeros(updrafts.shape)
         masked_array.mask = True
         w_temp = w[levels]
-        
+        div = divergence[levels]
+        ref = z[levels]
         for labels in range(1, len(max_z)-1):
             indicies = np.ma.where(label_level == labels)                                
                         
             if(len(indicies[0]) > 0  
-               and max_z[labels] >= 15000
+               and max_z[labels] >= 6000
                and min_z[labels] <= 1000):
-                max_w_individual.append(max(w_temp[indicies]))
-                level_individual.append(levels)
-                label_individual.append(labels)
-                count_individual.append(count)
- 
-    
+                z_individual.append(ref[indicies])
+                level_individual.append(levels*np.ones(len(ref[indicies])))
+                label_individual.append(labels*np.ones(len(ref[indicies])))
+                count_individual.append(count*np.ones(len(ref[indicies])))
+                
     # Convert to list of individual max w's for each updraft
-    max_w_individual = np.array(max_w_individual)
-    level_individual = np.array(level_individual)
+    if(len(z_individual) > 0):
+        z_individual = np.concatenate(z_individual)
+        level_individual = np.concatenate(level_individual)
 
     # Very large vertical velocities aloft
-    if(len(max_w_individual) > 0):
-        if(np.max(max_w_individual) > 60):
-            print('Very large vertical velocity found:')
-            print(time)
-            max_w_individual = np.array([])
-            level_individual = np.array([])
-    return_array = np.ma.zeros((len(max_w_individual),2))
-    return_array[:,0] = max_w_individual
+    #if(len(max_w_individual) > 0):
+    #    if(np.max(max_w_individual) > 60):
+    #        print('Very large vertical velocity found:')
+    #        print(time)
+    #        max_w_individual = np.array([])
+    #        level_individual = np.array([])
+    
+    return_array = np.ma.zeros((len(z_individual),2))
+    return_array[:,0] = div_individual
     return_array[:,1] = level_individual
     return return_array
        
-
 # Plot the radars from given time.
 times = get_dda_times(start_year, start_month, start_day,
                       start_hour, start_minute, end_year,
@@ -270,7 +275,6 @@ year = in_netcdf.variables['year'][:]
 month = in_netcdf.variables['month'][:]
 day = in_netcdf.variables['day'][:]
 groups = in_netcdf.variables['groups'][:]
-
 popedates = []
 for i in range(0,len(day)):
     popedates.append(datetime(year=int(year[i]),
@@ -302,19 +306,9 @@ in_netcdf.close()
 # Get delayed structure to load files in parallel
 get_file = delayed(get_updrafts)
 
-# Calculate PDF
-mean_w = np.ma.zeros(num_levels)
-median_w = np.ma.zeros(num_levels)
-ninety_w = np.ma.zeros(num_levels)
-ninety_five_w = np.ma.zeros(num_levels)
-ninety_nine_w = np.ma.zeros(num_levels)
-mean_z = np.ma.zeros(num_levels)
-median_z = np.ma.zeros(num_levels)
-ninety_z = np.ma.zeros(num_levels)
-ninety_five_z = np.ma.zeros(num_levels)
-ninety_nine_z = np.ma.zeros(num_levels)
-bins = np.arange(-10,40,1)
+# Calculate CFAD
 bins_z = np.arange(0,60,1)
+cfad = np.ma.zeros((num_levels, len(bins_z)-1)))
 print('Doing parallel grid loading...')
 import time
 t1 = time.time()
@@ -334,53 +328,25 @@ t2 = time.time() - t1
 print('Total time in s: ' + str(t2))
 print('Time per scan = ' + str(t2/len(pope_times)))
 level_individual = ws[:,1] 
-w_individual = ws[:,0]
-print(len(level_individual))
-print(len(w_individual))
+z_individual = ws[:,0]
+
 for levels in range(0,num_levels):      
-    w_new = w_individual[level_individual == levels]
-    if(len(w_new) > 0):
-        mean_w[levels] = np.nanmean(w_new)  
-        median_w[levels] = np.nanpercentile(w_new, 50)
-        ninety_w[levels] = np.nanpercentile(w_new, 90)
-        ninety_five_w[levels] = np.percentile(w_new, 95)
-        ninety_nine_w[levels] = np.percentile(w_new, 99)
+    z_new = w_individual[level_individual == levels]
+    if(len(z_new) > 0):
+        cfad[levels,:] = np.histogram(z_new, bins=bins_z, normed=True)
     else:
-        mean_w[levels] = np.nan
-        median_w[levels] = np.nan
-        ninety_w[levels] = np.nan
-        ninety_five_w[levels] = np.nan
-        ninety_nine_w[levels] = np.nan
-            
+        cfad[levels,:] = np.nan*np.ones(len(bins_z)-1)
+    
 print('Writing netCDF file...')
-print(mean_w)
 # Save to netCDF file
-out_netcdf = Dataset('wpdfregime' + str(pope_regime) + '_varble.cdf', 'w')
+out_netcdf = Dataset('cfadregime' + str(pope_regime) + '_varble.cdf', 'w')
 out_netcdf.createDimension('levels', num_levels)
-mean_file = out_netcdf.createVariable('mean', mean_w.dtype, ('levels',))
-mean_file.long_name = 'Mean w'
-mean_file.units = 'm s-1'
-mean_file[:] = mean_w
+out_netcdf.createDimension('bins', len(bin_z)-1)
 
-median_file = out_netcdf.createVariable('median', median_w.dtype, ('levels',))
-median_file.long_name = 'median w'
-median_file.units = 'm s-1'
-median_file[:] = median_w
-
-ninety_file = out_netcdf.createVariable('ninety', ninety_w.dtype, ('levels',))
-ninety_file.long_name = '90% w'
-ninety_file.units = 'm s-1'
-ninety_file[:] = ninety_w
-
-n5_file = out_netcdf.createVariable('ninety_five', ninety_five_w.dtype, ('levels',))
-n5_file.long_name = '95W w'
-n5_file.units = 'm s-1'
-n5_file[:] = ninety_five_w
-
-n5_file = out_netcdf.createVariable('ninety_nine', ninety_five_w.dtype, ('levels',))
-n5_file.long_name = '99W w'
-n5_file.units = 'm s-1'
-n5_file[:] = ninety_nine_w
+cfad_file = out_netcdf.createVariable('cfad', cfad.dtype, ('levels', 'bins'))
+cfad_file.long_name = 'CFAD of Reflectivity'
+cfad_file.units = 'normalized'
+cfad_file[:] = cfad
 
 z_file = out_netcdf.createVariable('z', ninety_five_w.dtype, ('levels',))
 z_file.long_name = 'z'
