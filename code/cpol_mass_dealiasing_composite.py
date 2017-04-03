@@ -46,6 +46,7 @@ def display_time(rad_date):
     from datetime import timedelta
     from scipy.stats import gaussian_kde
     from scipy.signal import argrelextrema
+    from numba import jit
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -88,13 +89,15 @@ def display_time(rad_date):
     def get_fold_position(the_phidp):
  
         tmp = the_phidp
-        rth_pos = np.zeros((tmp.shape[0]), dtype=np.int32)    
+        rth_pos = np.zeros((tmp.shape[0]), dtype=np.int32)  
         for j in range(tmp.shape[0]):
-            for i in range(50, tmp.shape[1]):
-                if the_phidp[j, i] < -20:    
-                    rth_pos[j] = i
+            max_phidp = -32768  
+            for i in range(70, tmp.shape[1]):
+                if the_phidp[j,i] < max_phidp-30.0 and the_phidp[j,i] > -1000.0:
+                    rth_pos[j] = i                    
                     break
-                
+                if(the_phidp[j,i] > max_phidp):
+                    max_phidp = the_phidp[j,i]
         return rth_pos
 
 
@@ -109,7 +112,7 @@ def display_time(rad_date):
                 tmp[j, i:] += 180
         return tmp
 
-    #@jit(cache=True)
+    @jit(cache=True)
     def refold_vdop(vdop_art, v_nyq_vel, rth_position):
         tmp = vdop_art
         for j in range(len(rth_position)):
@@ -174,7 +177,7 @@ def display_time(rad_date):
                 vel_field = 'velocity'
                 ref_threshold = 5
                 rhohv_field = 'cross_correlation_ratio'
-                phidp_field = 'specific_differential_phase'
+                phidp_field = 'differential_phase'
             if(radar.nsweeps == 1):
                 raise Exception('Radar only has one sweep!')
             if(not 'last_Radar' in locals()):
@@ -235,30 +238,33 @@ def display_time(rad_date):
                 r, azi = radar.range['data'], radar.azimuth['data']
                 rng2d, az2d = np.meshgrid(radar.range['data'], radar.azimuth['data'])
                 kdN, fdN, sdN = csu_kdp.calc_kdp_bringi(dp=dp, dz=dz, rng=rng2d/1000.0, thsd=24, gs=250.0, window=4)
-                kdN = np.ma.MaskedArray(kdN)
-                kdN[kdN == -32768] = np.ma.masked
 
                 fdN = np.ma.MaskedArray(fdN)
                 fdN[fdN == -32768] = np.ma.masked
-
-                sdN = np.ma.MaskedArray(sdN)
-                sdN[sdN == -32768] = np.ma.masked 
                   
                 phidp_fold = deepcopy(fdN)
+                phidp_fold[phidp_fold.mask == True] = np.nan
                 rth = get_fold_position(phidp_fold)
-                print(rth)
-                vdop_art = radar.fields[vel_field]['data']
+               
+                vdop_art = deepcopy(radar.fields[vel_field]['data'])
                 v_nyq_vel = radar.instrument_parameters['nyquist_velocity']['data'][0]
+                
                 vdop_refolded = refold_vdop(vdop_art, v_nyq_vel, rth)
                 radar.add_field_like(vel_field, 'vdop_phidp_fold_corrected', 
                                      vdop_refolded, replace_existing=True)
-                vel_field='vdop_phidp_fold_corrected'
+                radar.add_field_like(phidp_field, 'phidp_bringi', 
+                                     phidp_fold, replace_existing=True)  
+                vel_field = 'vdop_phidp_fold_corrected'
                  
                 # Tell me if fold is within 60 km of CPOL and write to file (for multidop reprocessing purposes)
+                is_fold = 0
                 for fold_starts in radar.range['data'][rth]:
-                    if(fold_starts > 20000 and fold_starts < 60000):
+                    if(fold_starts > 13500 and fold_starts < 80000 and is_fold == 0):
                         print('Fold in DD domain at ' + str(fold_starts/1e3) + ' km')
-                        rerun_multidop_list.write(rad_time.strftime('%m/%j/%Y %H:%M:%S'))
+                        print(rad_time.strftime('%m/%j/%Y %H:%M:%S'))
+                        rerun_multidop_list.write(hour_str + ':' + minute_str + '/n')
+                        is_fold = 1
+                gatefilter.exclude_masked('phidp_bringi')
             except:
                 import sys
                 exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -292,7 +298,6 @@ def display_time(rad_date):
                     corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
                                                                           vel_field=vel_field,
                                                                           keep_original=False,
-                                                                          last_Radar=radar,
                                                                           filt=1,
                                                                           sonde_profile=wind_profile,
                                                                           gatefilter=gatefilter,
@@ -353,25 +358,37 @@ def display_time(rad_date):
                 os.makedirs(out_path)
 
             out_file = hour_str + minute_str + '.png'
-            plt.figure(figsize=(7,16))
-            plt.subplot(211)
+            plt.figure(figsize=(7,24))
+            plt.subplot(311)
             display = pyart.graph.RadarMapDisplay(radar)
-            display.plot_ppi(ref_field, 
+            display.plot_ppi(ref_field,
+                             gatefilter=gatefilter, 
                              sweep=0, 
                              cmap=pyart.graph.cm.NWSRef,
                              vmin=0, 
                              vmax=70)
-            plt.subplot(212)
+            plt.subplot(312)
             display = pyart.graph.RadarMapDisplay(radar)
             display.plot_ppi('corrected_velocity', 
+                             gatefilter=gatefilter, 
                              sweep=0,
                              cmap=pyart.graph.cm.NWSVel,
                              vmin=-30,
                              vmax=30)
             plt.savefig(out_path + out_file)
+            plt.subplot(313)
+            display = pyart.graph.RadarMapDisplay(radar)
+            display.plot_ppi('phidp_bringi', 
+                             gatefilter=gatefilter,
+                             sweep=0,
+                             cmap='jet',
+                             vmin=-360,
+                             vmax=360)
+            plt.savefig(out_path + out_file)
             plt.close() 
         except:
             import sys
+            exc_type, exc_obj, exc_tb = sys.exc_info()
             print('Skipping corrupt time' +
                   year_str + 
                   '-' +
@@ -380,7 +397,10 @@ def display_time(rad_date):
                   hour_str + 
                   ':' +
                   minute_str)
-            print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+            print('Exception: ' + 
+                  str(sys.exc_info()[0]) + 
+                  str(sys.exc_info()[1]) +
+                  str(exc_tb.tb_lineno))
     rerun_multidop_list.close()    
  
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
@@ -396,7 +416,7 @@ times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year,
                                                             )
 print(dates)
 
-serial = 0
+serial = 1
 if(serial == 0):
     # Go through all of the scans
     #for rad_time in times:
