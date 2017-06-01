@@ -221,6 +221,7 @@ def get_updrafts(time):
     level_individual = []
     label_individual = []
     count_individual = []
+    flux_individual = []
 
     # Find deep convective cores and get max updraft speeds
     for levels in range(0,num_levels-1):
@@ -236,6 +237,8 @@ def get_updrafts(time):
                and max_z[labels] >= 15000
                and min_z[labels] <= 1000):
                 max_w_individual.append(max(w_temp[indicies]))
+                mflux = np.ma.sum(w_temp[indicies])*1.0*np.exp(levels*0.5/8)*1e6
+                flux_individual.append(mflux) 
                 level_individual.append(levels)
                 label_individual.append(labels)
                 count_individual.append(count)
@@ -243,6 +246,7 @@ def get_updrafts(time):
     # Convert to list of individual max w's for each updraft
     max_w_individual = np.array(max_w_individual)
     level_individual = np.array(level_individual)
+    flux_individual = np.array(flux_individual)
 
     # Very large vertical velocities aloft
     if(len(max_w_individual) > 0):
@@ -251,9 +255,11 @@ def get_updrafts(time):
             print(time)
             max_w_individual = np.array([])
             level_individual = np.array([])
-    return_array = np.ma.zeros((len(max_w_individual),2))
+            flux_individual = np.array([])
+    return_array = np.ma.zeros((len(max_w_individual),3))
     return_array[:,0] = max_w_individual
     return_array[:,1] = level_individual
+    return_array[:,2] = flux_individual
     return return_array
     
 # Plot the radars from given time.
@@ -287,7 +293,7 @@ dros_regime = int(sys.argv[2])
 # Filter out data not in Drosdowsky regime
 dros_times = []
 for time in times:
-    # Look for date in Drosdwosky regime data
+    # Look for date in Drosdowsky regime data
     cur_date = datetime(year=time.year, month=time.month, day=time.day)
     inds = np.where([day <= cur_date for day in drosdates])
     dros_index = inds[0][-1]
@@ -306,11 +312,11 @@ median_w = np.ma.zeros(num_levels)
 ninety_w = np.ma.zeros(num_levels)
 ninety_five_w = np.ma.zeros(num_levels)
 ninety_nine_w = np.ma.zeros(num_levels)
-mean_z = np.ma.zeros(num_levels)
-median_z = np.ma.zeros(num_levels)
-ninety_z = np.ma.zeros(num_levels)
-ninety_five_z = np.ma.zeros(num_levels)
-ninety_nine_z = np.ma.zeros(num_levels)
+mean_f = np.ma.zeros(num_levels)
+median_f = np.ma.zeros(num_levels)
+ninety_f = np.ma.zeros(num_levels)
+ninety_five_f = np.ma.zeros(num_levels)
+ninety_nine_f = np.ma.zeros(num_levels)
 bins = np.arange(-10,40,1)
 bins_z = np.arange(0,60,1)
 print('Doing parallel grid loading...')
@@ -333,23 +339,36 @@ print('Total time in s: ' + str(t2))
 print('Time per scan = ' + str(t2/len(dros_times)))
 level_individual = ws[:,1] 
 w_individual = ws[:,0]
+flux_individual = ws[:,2]
 print(len(level_individual))
 print(len(w_individual))
+print(len(np.where(level_individual == 5)))
 for levels in range(0,num_levels):      
     w_new = w_individual[level_individual == levels]
+    flux = flux_individual[level_individual == levels]
     if(len(w_new) > 0):
         mean_w[levels] = np.nanmean(w_new)  
         median_w[levels] = np.nanpercentile(w_new, 50)
         ninety_w[levels] = np.nanpercentile(w_new, 90)
         ninety_five_w[levels] = np.percentile(w_new, 95)
         ninety_nine_w[levels] = np.percentile(w_new, 99)
+        mean_f[levels] = np.nanmean(flux)  
+        median_f[levels] = np.nanpercentile(flux, 50)
+        ninety_f[levels] = np.nanpercentile(flux, 90)
+        ninety_five_f[levels] = np.percentile(flux, 95)
+        ninety_nine_f[levels] = np.percentile(flux, 99)
     else:
         mean_w[levels] = np.nan
         median_w[levels] = np.nan
         ninety_w[levels] = np.nan
         ninety_five_w[levels] = np.nan
         ninety_nine_w[levels] = np.nan
-            
+        mean_f[levels] = np.nan
+        median_f[levels] = np.nan
+        ninety_f[levels] = np.nan
+        ninety_five_f[levels] = np.nan
+        ninety_nine_f[levels] = np.nan
+
 print('Writing netCDF file...')
 
 # Save to netCDF file
@@ -384,5 +403,30 @@ z_file = out_netcdf.createVariable('z', ninety_five_w.dtype, ('levels',))
 z_file.long_name = 'z'
 z_file.units = 'm'
 z_file[:] = z_levels
-                                       
+
+mean_file = out_netcdf.createVariable('mean_f', mean_w.dtype, ('levels',))
+mean_file.long_name = 'mean mass flux'
+mean_file.units = 'm s-1'
+mean_file[:] = mean_f
+
+median_file = out_netcdf.createVariable('median_f', median_w.dtype, ('levels',))
+median_file.long_name = 'median mass flux'
+median_file.units = 'kg s-1'
+median_file[:] = median_f
+
+ninety_file = out_netcdf.createVariable('ninety_f', ninety_w.dtype, ('levels',))
+ninety_file.long_name = '90% mass flux'
+ninety_file.units = 'kg s-1'
+ninety_file[:] = ninety_f
+
+n5_file = out_netcdf.createVariable('ninety_five_f', ninety_five_w.dtype, ('levels',))
+n5_file.long_name = '95% mass flux'
+n5_file.units = 'kg s-1'
+n5_file[:] = ninety_five_f
+
+n5_file = out_netcdf.createVariable('ninety_nine_f', ninety_five_w.dtype, ('levels',))
+n5_file.long_name = '99 mass flux'
+n5_file.units = 'kg s-1'
+n5_file[:] = ninety_nine_f
+                           
 out_netcdf.close()
