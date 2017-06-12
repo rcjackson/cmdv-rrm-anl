@@ -239,7 +239,8 @@ def get_updrafts(time):
                and max_z[labels] >= 15000
                and min_z[labels] <= 1000):
                 max_w_individual.append(max(w_temp[indicies]))
-                flux_individual.append(np.ma.sum(w_temp[indicies])*1e6)
+                mflux = np.ma.sum(w_temp[indicies])*1.0*np.exp(levels*0.5/8)*1e6
+                flux_individual.append(mflux)
                 level_individual.append(levels)
                 label_individual.append(labels)
                 count_individual.append(count)

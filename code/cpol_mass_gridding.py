@@ -10,6 +10,7 @@ from ipyparallel import Client
 from time import sleep
 import time
 import time_procedures
+import sys
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -24,9 +25,9 @@ start_hour = 0
 start_minute = 1
 
 end_year = 2006
-end_month = 3
+end_month = 1
 end_day = 1
-end_hour = 1
+end_hour = 4
 end_minute = 2
 
 def grid_time(rad_time):
@@ -41,7 +42,7 @@ def grid_time(rad_time):
     import os
     from datetime import timedelta
     from copy import deepcopy
-    import multidop
+    import time
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -79,8 +80,7 @@ def grid_time(rad_time):
                                + hour_str
                                + minute_str + '.nc')
     print(cpol_grid_name)
-    if(not os.path.isfile(cpol_grid_name)):
-        try:
+    try:
             Radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
             # Skip single sweep scans
             if(Radar.nsweeps == 1):
@@ -167,15 +167,14 @@ def grid_time(rad_time):
                                                    zlim=(500, 20000), 
                                                    grid_shape=(40, 81, 111))
              
-            # The analysis engine requires azimuth and elevation to be part of the grid.
-            # This information is computed from the grid geometry.
-            grid_cpol = multidop.angles.add_azimuth_as_field(grid_cpol)
-            grid_cpol = multidop.angles.add_elevation_as_field(grid_cpol)
+            
 
             # Save the input grids for later.
             pyart.io.write_grid(cpol_grid_name, grid_cpol)              
             
-        except:
+    except:
+            import sys
+            exc_type, exc_obj, exc_tb = sys.exc_info()
             print('Skipping corrupt time' +
                   year_str + 
                   '-' +
@@ -184,6 +183,10 @@ def grid_time(rad_time):
                   hour_str + 
                   ':' +
                   minute_str)
+            print('Exception: ' + 
+                  str(sys.exc_info()[0]) + 
+                  str(sys.exc_info()[1]) +
+                  str(exc_tb.tb_lineno))
 
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
                                                             start_month,
@@ -229,10 +232,11 @@ t1 = time.time()
 #    grid_time(timer)
 
 #Map the code and input to all workers
-#result = My_View.map_async(grid_time, times)
+result = My_View.map_async(grid_time, times)
 
 #Reduce the result to get a list of output
-qvps = result.get()
+qvps=result.get()
+print(result.stdout)
 tt = time.time() - t1
 print(tt)
 print(tt/len(times))
