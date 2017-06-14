@@ -10,6 +10,7 @@ from ipyparallel import Client
 from time import sleep
 import time
 import time_procedures
+import sys
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -19,14 +20,14 @@ out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/'
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
 start_year = 2006
 start_month = 1
-start_day = 19
+start_day = 1
 start_hour = 0
 start_minute = 1
 
 end_year = 2006
-end_month = 2
-end_day = 10
-end_hour = 1
+end_month = 1
+end_day = 1
+end_hour = 4
 end_minute = 2
 
 def grid_time(rad_time):
@@ -41,7 +42,7 @@ def grid_time(rad_time):
     import os
     from datetime import timedelta
     from copy import deepcopy
-    import multidop
+    import time
 
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -79,8 +80,7 @@ def grid_time(rad_time):
                                + hour_str
                                + minute_str + '.nc')
     print(cpol_grid_name)
-    if(not os.path.isfile(cpol_grid_name)):
-        #try:
+    try:
             Radar = time_procedures.get_radar_from_cpol_cfradial(rad_time)
             # Skip single sweep scans
             if(Radar.nsweeps == 1):
@@ -96,6 +96,7 @@ def grid_time(rad_time):
             
         	    
             # Apply gatefilter based on velocity and despeckling
+            bt = time.time()
             gatefilter_Gunn = pyart.correct.despeckle_field(Radar, 
                                                             ref_field, 
                                                             size=6)
@@ -110,8 +111,8 @@ def grid_time(rad_time):
                 Radar.add_field('velocity_texture', texture_field, replace_existing = True)
             
                 gatefilter = pyart.correct.GateFilter(Radar)
-                gatefilter.exclude_below('Refl', 0)
-                gatefilter.exclude_below('velocity_texture', 3)
+                #gatefilter.exclude_below('Refl', -5)
+                #gatefilter.exclude_below('velocity_texture', 3)
                 gatefilter = pyart.correct.despeckle.despeckle_field(Radar,
                                                                      ref_field,
                                                                      size=6,
@@ -127,8 +128,8 @@ def grid_time(rad_time):
                     Radar.add_field('velocity_texture', texture_field, replace_existing = True)
             
                     gatefilter = pyart.correct.GateFilter(Radar)
-                    gatefilter.exclude_below('reflectivity', 0)
-                    gatefilter.exclude_below('velocity_texture', 3)
+                    #gatefilter.exclude_below('reflectivity', -5)
+                    #gatefilter.exclude_below('velocity_texture', 3)
                     gatefilter = pyart.correct.despeckle.despeckle_field(Radar,
                                                                          ref_field,
                                                                          size=6,
@@ -136,7 +137,7 @@ def grid_time(rad_time):
                 except:
                     print('Unrecognized reflectivity/velocity field names! Skipping...')
                     return
-
+            print(str(time.time() - bt) + ' seconds to filter')
             # Change variable names to DT (reflectivity) and VT (velocity) expected by multidop
             # If you needed to dealias or perform other corrections,
             # this would be the time to start doing that.
@@ -155,10 +156,10 @@ def grid_time(rad_time):
             # from both radars, so no need to store more data than that. 
             grid_cpol = time_procedures.grid_radar(Radar, 
                                                    origin=(Radar.latitude['data'][0], 
-                                                   Radar.longitude['data'][0]),
-                                                   xlim=(-60000, 50000), 
-                                                   ylim=(-50000, 30000), 
-                                                   fields=['DT'], 
+                                                           Radar.longitude['data'][0]),
+                                                   xlim=(-60000, 60000), 
+                                                   ylim=(-60000, 60000), 
+                                                   fields=['DT', 'velocity_texture'], 
                                                    min_radius=750.0, 
                                                    bsp=1.0, nb=1.5,
                                                    h_factor=3.0, 
@@ -166,23 +167,26 @@ def grid_time(rad_time):
                                                    zlim=(500, 20000), 
                                                    grid_shape=(40, 81, 111))
              
-            # The analysis engine requires azimuth and elevation to be part of the grid.
-            # This information is computed from the grid geometry.
-            grid_cpol = multidop.angles.add_azimuth_as_field(grid_cpol)
-            grid_cpol = multidop.angles.add_elevation_as_field(grid_cpol)
+            
 
             # Save the input grids for later.
             pyart.io.write_grid(cpol_grid_name, grid_cpol)              
             
-        #except:
-        #    print('Skipping corrupt time' +
-        #          year_str + 
-        #          '-' +
-        #          month_str + 
-        #          ' ' + 
-        #          hour_str + 
-        #          ':' +
-        #          minute_str)
+    except:
+            import sys
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print('Skipping corrupt time' +
+                  year_str + 
+                  '-' +
+                  month_str + 
+                  ' ' + 
+                  hour_str + 
+                  ':' +
+                  minute_str)
+            print('Exception: ' + 
+                  str(sys.exc_info()[0]) + 
+                  str(sys.exc_info()[1]) +
+                  str(exc_tb.tb_lineno))
 
 times,dates = time_procedures.get_radar_times_cpol_cfradial(start_year, 
                                                             start_month,
@@ -231,7 +235,8 @@ t1 = time.time()
 result = My_View.map_async(grid_time, times)
 
 #Reduce the result to get a list of output
-qvps = result.get()
+qvps=result.get()
+print(result.stdout)
 tt = time.time() - t1
 print(tt)
 print(tt/len(times))

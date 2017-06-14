@@ -61,6 +61,7 @@ for i in range(0,len(years)):
                          hour=hours[i],
                          minute=minutes[i]-1,
                          )
+    print(minutes[i])
     if(SCP20[i,2] > 0.1 and temp_date >= start_time and temp_date <= end_time):
         # Check for file existence
         year_str = "%04d" % temp_date.year

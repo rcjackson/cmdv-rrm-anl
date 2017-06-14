@@ -233,7 +233,7 @@ def get_updrafts(time):
             indicies = np.ma.where(label_level == labels)                                
                         
             if(len(indicies[0]) > 0  
-               and max_z[labels] >= 6000
+               and max_z[labels] >= 15000
                and min_z[labels] <= 1000):
                 max_w_individual.append(max(w_temp[indicies]))
                 level_individual.append(levels)
@@ -353,6 +353,7 @@ for levels in range(0,num_levels):
         ninety_nine_w[levels] = np.nan
             
 print('Writing netCDF file...')
+print(mean_w)
 # Save to netCDF file
 out_netcdf = Dataset('wpdfregime' + str(pope_regime) + '_varble.cdf', 'w')
 out_netcdf.createDimension('levels', num_levels)
