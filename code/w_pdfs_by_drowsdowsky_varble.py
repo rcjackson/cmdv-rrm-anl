@@ -1,22 +1,23 @@
 import matplotlib
 matplotlib.use('Agg')
 import pyart
-from netCDF4 import Dataset
 import numpy as np
-from datetime import datetime, timedelta
-from copy import deepcopy
 import glob
 import math
-import dask.array as da
-from distributed import Client, LocalCluster
-from dask import delayed, compute
+import dask.bag as db
 import time
 import sys
+
+from datetime import datetime, timedelta
+from copy import deepcopy
+from distributed import Client, LocalCluster
+from dask import delayed, compute
+from netCDF4 import Dataset
 from scipy import ndimage
 
 # Start a cluster with x workers
-cluster = LocalCluster(n_workers=int(sys.argv[1]))
-client = Client(cluster)
+client = Client(scheduler_file=sys.argv[1])
+land_ocean = int(sys.argv[3])
 
 # Input the range of dates and time wanted for the collection of images
 start_year = 2005
@@ -102,7 +103,8 @@ def get_dda_times(start_year, start_month, start_day,
             file_list.append(data_list[j])
         cur_time = cur_time + timedelta(days=1)
     
-    # Parse all of the dates and time in the interval and add them to the time list
+    # Parse all of the dates and time in the 
+    # interval and add them to the time list
     past_time = []
     for file_name in file_list:
         date_str = file_name[-15:-3]
@@ -122,7 +124,8 @@ def get_dda_times(start_year, start_month, start_day,
         time_list.append(cur_time)
         
     
-    # Sort time list and make sure time are at least xx min apart
+    # Sort time list and make sure time are 
+    # at least xx min apart
     time_list.sort()
     time_list_sorted = deepcopy(time_list)
    
@@ -173,20 +176,41 @@ def get_bca(grid):
     theta_2 = np.arccos((x-berr_origin[1])/b)
     return np.arccos((a*a+b*b-c*c)/(2*a*b))
 
-def get_updrafts(time):
-    pyart_grid = get_grid_from_dda(time)
-    bca = get_bca(pyart_grid)
-    w = pyart_grid.fields['upward_air_velocity']['data']
+def get_updrafts(time, bca, ocean_mask, land_ocean):
+    try:
+        pyart_grid = get_grid_from_dda(time)
+        w = pyart_grid.fields['upward_air_velocity']['data']
+    except:
+        return_array = np.ma.zeros((0,3))
+        max_w_individual = np.array([])
+        level_individual = np.array([])
+        flux_individual = np.array([])
+        return_array[:,0] = max_w_individual
+        return_array[:,1] = level_individual
+        return_array[:,2] = flux_individual
+        return return_array
+
     z = pyart_grid.fields['reflectivity']['data']
     bca = np.ma.masked_invalid(bca)
+    
+    if(land_ocean == 1):
+        truth_value = True
+    else:
+        truth_value = False
 
-    for levels in range(0,num_levels-1):
+    for levels in range(0, num_levels-1):
         w_outside_updraft = np.logical_or(w[levels] < 1, w[levels] > 99.0)
         outside_dd_lobes = np.logical_or(bca < math.pi/6, bca > 5*math.pi/6)
-        w[levels] = np.ma.masked_where(np.logical_or(w_outside_updraft,
-                                                     outside_dd_lobes), w[levels])
-        z[levels] = np.ma.masked_where(np.logical_or(w_outside_updraft,
-                                                     outside_dd_lobes), z[levels])
+        if(land_ocean < 2):
+            w[levels] = np.ma.masked_where(np.logical_or(ocean_mask[levels] == truth_value,
+                np.logical_or(w_outside_updraft, outside_dd_lobes)), w[levels])
+            z[levels] = np.ma.masked_where(np.logical_or(ocean_mask[levels] == truth_value,
+                np.logical_or(w_outside_updraft, outside_dd_lobes)), w[levels])
+        else:
+            w[levels] = np.ma.masked_where(np.logical_or(
+                w_outside_updraft, outside_dd_lobes), w[levels])
+            z[levels] = np.ma.masked_where(np.logical_or(
+                w_outside_updraft, outside_dd_lobes), w[levels])
        
     grid_z = pyart_grid.point_z['data']
 
@@ -206,7 +230,7 @@ def get_updrafts(time):
                                 [0,1,0],
                                 [0,0,0]]]
     updrafts, num_updrafts = ndimage.measurements.label(w_temp, 
-                                                        structure=six_connected_structure)
+        structure=six_connected_structure)
     
     # Get statistics in continous regions
     index=np.arange(0, num_updrafts + 1)
@@ -283,12 +307,14 @@ for i in range(0,len(day)):
 
 # Since grids are uniform, calculate beam crossing angle for first grid and
 # apply to all
-first_grid = get_grid_from_dda(times[0])
+first_grid = pyart.io.read_grid('ocean_mask.nc')
 bca = get_bca(first_grid) 
 num_levels = 40
 z_levels = np.arange(0.5,0.5*(num_levels+1),0.5)*1000
 count = 0
 dros_regime = int(sys.argv[2])
+ocean_mask = first_grid.fields['ocean_mask']['data']
+ocean_mask = ocean_mask.mask
 
 # Filter out data not in Drosdowsky regime
 dros_times = []
@@ -298,13 +324,15 @@ for time in times:
     inds = np.where([day <= cur_date for day in drosdates])
     dros_index = inds[0][-1]
     if(groups[dros_index] == dros_regime):
-        print((drosdates[dros_index], time))
         dros_times.append(time)
 
 in_netcdf.close()
 
+get_updrafts_func = lambda x: get_updrafts(
+    x, bca, ocean_mask, land_ocean)
+
 # Get delayed structure to load files in parallel
-get_file = delayed(get_updrafts)
+#get_file = delayed(get_updrafts_func)
 
 # Calculate PDF
 mean_w = np.ma.zeros(num_levels)
@@ -323,26 +351,18 @@ print('Doing parallel grid loading...')
 import time
 t1 = time.time()
 ws = []
-for i in range(0, len(dros_times), int(len(dros_times)/4)):
-    ws_temp = [get_file(times) for times in dros_times[i:(i+len(dros_times)/4)]]
-    ws_temp = compute(*ws_temp)
-    ws.append(ws_temp)
+print(len(dros_times))
+the_bag = db.from_sequence(dros_times)
+ws = the_bag.map(get_updrafts_func).compute()
 
-for arrays in ws:
-    array_temp = np.concatenate(arrays)
-    print(array_temp.shape) 
-
-ws = np.concatenate([np.concatenate(arrays) for arrays in ws])
-
+print(ws)
+ws = np.concatenate(ws, axis=0)
 t2 = time.time() - t1
 print('Total time in s: ' + str(t2))
 print('Time per scan = ' + str(t2/len(dros_times)))
 level_individual = ws[:,1] 
 w_individual = ws[:,0]
 flux_individual = ws[:,2]
-print(len(level_individual))
-print(len(w_individual))
-print(len(np.where(level_individual == 5)))
 for levels in range(0,num_levels):      
     w_new = w_individual[level_individual == levels]
     flux = flux_individual[level_individual == levels]
@@ -372,7 +392,8 @@ for levels in range(0,num_levels):
 print('Writing netCDF file...')
 
 # Save to netCDF file
-out_netcdf = Dataset('wpdfregime_dros' + str(dros_regime) + '_varble.cdf', 'w')
+out_netcdf = Dataset(('wpdfregime_dros' + str(dros_regime) + 
+                      '_varble' + str(land_ocean) + '.cdf'), 'w')
 out_netcdf.createDimension('levels', num_levels)
 mean_file = out_netcdf.createVariable('mean', mean_w.dtype, ('levels',))
 mean_file.long_name = 'Mean w'
