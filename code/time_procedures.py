@@ -11,7 +11,7 @@ from copy import deepcopy
 data_path_berr = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 sounding_file = '/home/rjackson/data/soundings/twpsondewnpnC3.b1.20020401.043300..20091230.172000.custom.cdf'
 out_data_path = '/lcrc/group/earthscience/rjackson/multidop_grids/'
-cpol_grid_data_path = '/lcrc/group/earthscience/rjackson/data/radar/grids/'
+cpol_grid_data_path = '/lcrc/group/earthscience/rjackson/cpol_grids_100km/'
 data_path_sounding = '/lcrc/group/earthscience/rjackson/soundings/'
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
 data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
@@ -211,10 +211,10 @@ def get_grid_times_cpol(start_year, start_month, start_day,
         year_str = "%04d" % cur_time.year
         day_str = "%02d" % cur_time.day
         month_str = "%02d" % cur_time.month       
-        dir_str = year_str + '/' + month_str + '/' + day_str + '/'
+        dir_str = year_str + '/' + year_str + month_str + day_str + '/'
         format_str = (cpol_grid_data_path +
                       dir_str + 
-                      'cpol_' +
+                      'CPOL_GRID.' +
                       year_str +
                       month_str + 
                       day_str + 
@@ -235,18 +235,19 @@ def get_grid_times_cpol(start_year, start_month, start_day,
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
     for file_name in file_list:
-        date_str = file_name[-15:-3]
+        date_str = file_name[-24:-9]
         year_str = date_str[0:4]
         month_str = date_str[4:6]
         day_str = date_str[6:8]
-        hour_str = date_str[8:10]
-        minute_str = date_str[10:12]
+        hour_str = date_str[9:11]
+        minute_str = date_str[11:13]
+        second_str = date_str[13:15]
         cur_time = datetime(int(year_str),
                             int(month_str),
                             int(day_str),
                             int(hour_str),
                             int(minute_str),
-                            0)
+                            int(second_str))
         time_list.append(cur_time)
     
     # Sort time list and make sure time are at least xx min apart
@@ -880,6 +881,7 @@ def write_radar_to_berr_cfradial(radar, time):
     file_name = file_name[0]
     pyart.io.write_cfradial(file_name, radar)
 
+
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_cpol_cfradial(time):
     from datetime import timedelta, datetime
@@ -929,6 +931,7 @@ def get_radar_from_cpol_cfradial(time):
     radar = pyart.io.read(file_name[0])
     return radar
 
+
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_berr_cfradial(time):
     from datetime import timedelta, datetime
@@ -962,6 +965,7 @@ def get_radar_from_berr_cfradial(time):
     radar = pyart.io.read(file_name[0])
     return radar
 
+
 # Get a Radar object given a time period in the CPOL dataset
 def get_grid_from_cpol(time):
     from datetime import timedelta, datetime
@@ -972,23 +976,24 @@ def get_grid_from_cpol(time):
     minute_str = "%02d" % time.minute
     second_str = "%02d" % time.second
     file_name_str = (cpol_grid_data_path + 
-                     '/' +
                      year_str +
                      '/' + 
-                     month_str +
-                     '/' +
-                     day_str +
-                     '/' +  
-                     'cpol_' +
                      year_str +
                      month_str +
                      day_str +
+                     '/' +
+                     'CPOL_GRID.' +
+                     year_str +
+                     month_str +
+                     day_str + '.' +
                      hour_str +
                      minute_str +
-                     '.nc')
+                     second_str +
+                     '.100km.nc')
     print(file_name_str)
     radar = pyart.io.read_grid(file_name_str)
     return radar
+
 
 # get_radar_times
 #     start_year = Start year of animation
@@ -1076,9 +1081,7 @@ def get_radar_times_berr(start_year, start_month, start_day,
         hour_str = date_str[9:11]
         minute_str = date_str[11:13]
         second_str = date_str[13:15]
-               
-        
-        
+
         cur_time = datetime(int(year_str),
                             int(month_str),
                             int(day_str),
@@ -1108,6 +1111,7 @@ def get_radar_times_berr(start_year, start_month, start_day,
               
     return time_list_final
 
+
 def grid_radar(radar, grid_shape=(20, 301, 301), xlim=(-150000, 150000),
                ylim=(-150000, 150000), zlim=(1000, 20000), bsp=1.0, 
                min_radius=750, h_factor=4.0, nb=1.5, gatefilter=False,
@@ -1130,6 +1134,7 @@ def grid_radar(radar, grid_shape=(20, 301, 301), xlim=(-150000, 150000),
         gatefilters=[gatefilter])
     print(time.time() - bt, 'seconds to grid radar')
     return grid
+
 
 def find_nearest(array, value):
     import numpy 
@@ -1246,6 +1251,7 @@ def get_sounding_times(start_year, start_month, start_day,
                
     return time_list_final
 
+
 # Get a sounding object given a time period in the CPOL dataset
 def get_sounding(time):
     from datetime import timedelta, datetime
@@ -1268,6 +1274,7 @@ def get_sounding(time):
                      '.custom.cdf')
     sounding = Dataset(file_name_str, mode='r')
     return sounding
+
 
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_cpol_rapic(time):
@@ -1296,6 +1303,7 @@ def get_radar_from_cpol_rapic(time):
     radar = pyart.aux_io.read_radx(file_name_str)
     return radar 
 
+
 # Get a Radar object given a time period in the Berrima dataset
 def get_radar_from_berr_rapic(time):
     from datetime import timedelta, datetime
@@ -1317,6 +1325,7 @@ def get_radar_from_berr_rapic(time):
                      '.rapic')
     radar = pyart.aux_io.read_radx(file_name_str)
     return radar 
+
 
 # Get a Radar object given a time period in the CPOL dataset
 def get_radar_from_cpol_lassen(time):
@@ -1345,6 +1354,7 @@ def get_radar_from_cpol_lassen(time):
     
     radar = pyart.aux_io.read_radx(file_name_str)
     return radar 
+
 
 # get_radar_times
 #     start_year = Start year of animation
@@ -1457,6 +1467,7 @@ def get_dda_times(start_year, start_month, start_day,
                            
     return time_list_final
 
+
 # Get a Grid object given a time period in the Multidop dataset
 def get_grid_from_dda(time):
     year_str = "%04d" % time.year
@@ -1475,6 +1486,7 @@ def get_grid_from_dda(time):
     
     radar = pyart.io.read_grid(file_name_str)
     return radar
+
 
 def write_grid(time, grid):
     year_str = "%04d" % time.year
