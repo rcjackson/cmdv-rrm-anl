@@ -6,10 +6,17 @@ import numpy as np
 import glob
 import os
 from copy import deepcopy
-from ipyparallel import Client
+from distributed import Client
+
+import dask.bag as db
 from time import sleep
+from datetime import timedelta, datetime
+from scipy.optimize import fmin_l_bfgs_b
 import time
 import time_procedures
+import sys
+
+sys.path.append('/home/rjackson/cmdv-rrm-anl/code/')
 
 # File paths
 berr_data_file_path = '/lcrc/group/earthscience/radar/stage/radar_disk_two/berr_rapic/'
@@ -17,29 +24,22 @@ data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic
 out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
 
 ## Berrima - 2009-2011 (new format), 2005-2005 (old format)
-start_year = 2006
-start_month = 1
-start_day = 27
-start_hour = 9
-start_minute = 50 
+start_year = int(sys.argv[1])
+start_month = int(sys.argv[2])
+start_day = int(sys.argv[3])
+start_hour = 0
+start_minute = 1 
 
-end_year = 2006
-end_month = 1
-end_day = 28
-end_hour = 12
+end_year = int(sys.argv[4])
+end_month = int(sys.argv[5])
+end_day = int(sys.argv[6])
+end_hour = 0
 end_minute = 2
 
 def display_time(rad_date):
-    import pyart
-    import matplotlib
     import sys
     sys.path.append('/home/rjackson/cmdv-rrm-anl/code/')
-    import time_procedures
-    matplotlib.use('Agg')
-    from matplotlib import pyplot as plt
-    import os
-    from datetime import timedelta
-
+    
     # Get a Radar object given a time period in the CPOL dataset
     data_path_cpol = '/lcrc/group/earthscience/radar/stage/radar_disk_two/cpol_rapic/'
     out_file_path = '/lcrc/group/earthscience/rjackson/quicklook_plots/berr/'
@@ -153,7 +153,7 @@ def display_time(rad_date):
                 v = Sounding_netcdf.variables['v_wind'][:]
     
                 Sounding_netcdf.close()
-                steps = np.floor(len(u)/70)
+                steps = int(np.floor(len(u)/70))
                 wind_profile = pyart.core.HorizontalWindProfile.from_u_and_v(alt[0::steps],
                                                                              u[0::steps],
                                                                              v[0::steps])
@@ -161,33 +161,12 @@ def display_time(rad_date):
                 ## 4DD expects speed, direction but HorizontalWindProfile outputs u_wind, v_wind
                 wind_profile.u = wind_profile.u_wind
                 wind_profile.v = wind_profile.v_wind
-               
-                print(wind_profile)
-    
-                # Some files have azimuthal angle configurations that break assumptions 
-                # of 4DD code
-                # In terms of how the 4DD code calculates beam width likely due to bad azimuthal
-                # angle data
-                # Let's skip for now....
-                vels = pyart.correct.dealias._create_rsl_volume(radar, 
-                                                'Vel', 
-                                                0, 
-                                                -9999.0, 
-                                                excluded=None)
-                for i in range(0,17):
-                    sweep = vels.get_sweep(i)
-                    ray0 = sweep.get_ray(0)
-                    ray50 = sweep.get_ray(50)
-                    diff = ray0.azimuth-ray50.azimuth 
-                    if(diff > 180.0):
-                        diff = 360.0 - diff    
-                    if(abs(diff)/50.0 < 0.8):
-                        print('Corrupt azimuthal angle data....skipping file!')
-                        raise Exception('Corrupt azimuthal angles!')
+                sim_vel = pyart.util.simulated_vel_from_profile(radar, wind_profile, sim_vel_field=vel_field)
+                radar.add_field('sim_velocity', sim_vel, replace_existing=True)
 
                 # Dealias velocities
-                gatefilter = pyart.correct.despeckle.despeckle_field(radar,
-                                                                     vel_field)
+                gatefilter = pyart.correct.GateFilter(radar)
+                
                 gatefilter.exclude_below(ref_field, 0)
                 gatefilter.exclude_masked(vel_field)
                 gatefilter.exclude_invalid(vel_field)
@@ -197,32 +176,13 @@ def display_time(rad_date):
                 gatefilter.exclude_below(vel_field, -75)
                 gatefilter.exclude_above(vel_field, 75)
                 
-                if(last_Radar.nsweeps == radar.nsweeps and not last_Radar == radar):
-                    try:
-                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                              vel_field=vel_field,
-                                                                              keep_original=False,
-                                                                              last_Radar=radar,
-                                                                              filt=1,
-                                                                              sonde_profile=wind_profile,
-                                                                              gatefilter=gatefilter,
-                                                                              ) 
-                    except:
-                        corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                              vel_field=vel_field,
-                                                                              keep_original=False,
-                                                                              filt=1,
-                                                                              sonde_profile=wind_profile,
-                                                                              gatefilter=gatefilter,
-                                                                              ) 
-                else:
-                    corrected_velocity_4dd = pyart.correct.dealias_fourdd(radar,
-                                                                          vel_field=vel_field,
-                                                                          keep_original=False,
-                                                                          filt=1,
-                                                                          sonde_profile=wind_profile,
-                                                                          gatefilter=gatefilter, 
-                                                                          )
+                texture = pyart.retrieve.calculate_velocity_texture(radar, vel_field=vel_field, wind_size=4)
+                radar.add_field('velocity_texture', texture, replace_existing=True)
+                gatefilter.exclude_above('velocity_texture', 2)
+                gatefilter = pyart.correct.despeckle.despeckle_field(radar,
+                                                                     vel_field,
+                                                                     gatefilter=gatefilter,
+                                                                     size=25) 
 
                 # Calculate result from region based dealiasing
                 corrected_velocity_region = pyart.correct.dealias_region_based(radar,
@@ -235,18 +195,66 @@ def display_time(rad_date):
                                                                                skip_along_ray=2000,
                                                                                rays_wrap_around=True,
                                                                                valid_min=-75,
-                                                                               valid_max=75)                                              
+                                                                               valid_max=75)   
+                gfilter = gatefilter.gate_excluded
+                vels = deepcopy(corrected_velocity_region['data'])
+                vels_uncorr = radar.fields[vel_field]['data']
+                sim_vels = radar.fields['sim_velocity']['data']
+                v_nyq_vel = radar.instrument_parameters['nyquist_velocity']['data'][0]
+                region_means = []
+                regions = np.zeros(vels.shape)
+                for nsweep, sweep_slice in enumerate(radar.iter_slice()):
+                    sfilter = gfilter[sweep_slice]
+                    vels_slice = vels[sweep_slice]
+                    svels_slice = sim_vels[sweep_slice]
+                    vels_uncorrs = vels_uncorr[sweep_slice]
+                    valid_sdata = vels_uncorrs[~sfilter]
+                    int_splits = pyart.correct.region_dealias._find_sweep_interval_splits(v_nyq_vel, 3, valid_sdata, nsweep)
+                    regions[sweep_slice], nfeatures = pyart.correct.region_dealias._find_regions(vels_uncorrs, sfilter, limits=int_splits)
+
+
+	            ## Minimize cost function that is sum of difference between regions and
+                    def cost_function(nyq_vector):
+                        cost = 0
+                        i = 0
+                        for reg in np.unique(regions[sweep_slice]):
+                            add_value = np.abs(np.ma.mean(vels_slice[regions[sweep_slice] == reg]) + nyq_vector[i]*2*v_nyq_vel 
+                                - np.ma.mean(svels_slice[regions[sweep_slice] == reg])) 
                 
-                corr_vel = corrected_velocity_4dd['data']
-                difference = corrected_velocity_4dd['data']/corrected_velocity_region['data']
-                corr_vel = np.ma.masked_where(np.logical_or(difference > 1.05, 
-                                                            difference < 0.95),
-                                             corr_vel)
-            
-                corrected_velocity_4dd['data'] = corr_vel
+                            if(np.isfinite(add_value)):
+                                cost += add_value
+                            i = i + 1
+                        return cost
+
+	    
+                    def gradient(nyq_vector):
+                        gradient_vector = np.zeros(len(nyq_vector))
+                        i = 0
+                        for reg in np.unique(regions[sweep_slice]):
+                            add_value = (np.ma.mean(vels_slice[regions[sweep_slice] == reg]) + nyq_vector[i]*2*v_nyq_vel
+                                - np.ma.mean(svels_slice[regions[sweep_slice] == reg])) 
+                            if(add_value > 0):
+                                gradient_vector[i] = 2*v_nyq_vel
+                            else:
+                                gradient_vector[i] = -2*v_nyq_vel
+                            i = i + 1
+                        return gradient_vector
+
+
+                    bounds_list = [(x,y) for (x,y) in zip(-5*np.ones(nfeatures+1), 5*np.ones(nfeatures+1))]
+                    nyq_adjustments = fmin_l_bfgs_b(cost_function, np.zeros((nfeatures+1)), disp=True, fprime=gradient,
+                                                    bounds=bounds_list, maxiter=30)
+                    i = 0
+                    for reg in np.unique(regions[sweep_slice]):
+                        vels_slice[regions[sweep_slice] == reg] += v_nyq_vel*np.round(nyq_adjustments[0][i])
+                        i = i + 1
+                        vels[sweep_slice] = vels_slice
+
+                corrected_velocity_region['data'] = vels                                           
+                      
                 radar.add_field_like(vel_field, 
                                      'corrected_velocity', 
-                                     corrected_velocity_4dd['data'],
+                                     corrected_velocity_region['data'],
                                      replace_existing=True)
 
 
@@ -264,23 +272,36 @@ def display_time(rad_date):
                     os.makedirs(out_path)
 
                 out_file = hour_str + minute_str + '.png'
-                plt.figure(figsize=(7,14))
-                plt.subplot(211)
+                plt.figure(figsize=(7,21))
+                plt.subplot(411)
 
                 display = pyart.graph.RadarMapDisplay(radar)
                 display.plot_ppi(ref_field, 
                                  sweep=0, 
                                  cmap=pyart.graph.cm.NWSRef,
 	                         vmin=0, 
-                                 vmax=70)
-                plt.subplot(212)
-                display = pyart.graph.RadarMapDisplay(radar)
+                                 vmax=70,
+                                 gatefilter=gatefilter)
+                plt.subplot(412)
                 display.plot_ppi('corrected_velocity', 
                                  sweep=0,
 	                         cmap=pyart.graph.cm.NWSVel,
                                  vmin=-30,
-                                 vmax=30)
+                                 vmax=30, gatefilter=gatefilter)
+                plt.subplot(413)
+                display.plot_ppi('sim_velocity', 
+                                 sweep=0,
+	                         cmap=pyart.graph.cm.NWSVel,
+                                 vmin=-30,
+                                 vmax=30) 
                 plt.savefig(out_path + out_file)
+                plt.subplot(414)
+                display.plot_ppi('velocity_texture', 
+                                 sweep=0,
+	                         cmap=pyart.graph.cm.NWSVel,
+                                 vmin=0,
+                                 vmax=10) 
+                plt.savefig(out_path + out_file) 
                 plt.close() 
             except:
                 import sys
@@ -293,6 +314,7 @@ def display_time(rad_date):
                       ':' +
                       minute_str)
                 print('Exception: ' + str(sys.exc_info()[0]) + str(sys.exc_info()[1]))
+                print(str(sys.exc_info()[2].tb_lineno))
 
 
 times,dates = time_procedures.get_radar_times_berr_cfradial(start_year, 
@@ -312,46 +334,23 @@ print(dates)
 #for rad_time in times:
 #    display_time(rad_time)
 
-serial = 1
+if __name__ == '__main__':
+    serial = 0
 
-if(serial == 0):
-    # Get iPython cluster
-    state = 0
-    while state == 0:
-        try:
-            My_Cluster = Client()
-            My_View = My_Cluster[:]
-            state = 1
-        except:
-            state = 0
-            print('Cluster not ready for me')
-            sleep(10)
+    if(serial == 0):
+        # Get iPython cluster
+        #Map the code and input to all workers
+        #client = Client(scheduler_file=)
+        result = db.from_sequence(dates)
+        result.map(display_time).compute()
 
-    #Turn off blocking so all engines can work async
-    My_View.block = False
-
-    #on all engines do an import of Py-ART
-    My_View.execute('import matplotlib')
-    My_View.execute('matplotlib.use("agg")')
-    My_View.execute('import pyart')
-    My_View.execute('import numpy as np')
-    My_View.execute('import time_procedures')
-    t1 = time.time()
-
-    #for rad_date in dates:
-    #    display_time(rad_date)
-
-    #Map the code and input to all workers
-    result = My_View.map_async(display_time, dates)
-
-    #Reduce the result to get a list of output
-    qvps = result.get()
-    tt = time.time() - t1
-    print(tt)
-    print(tt/len(times))
-else:
-    for rad_date in dates:
-        display_time(rad_date)
+        #Reduce the result to get a list of output
+        tt = time.time() - t1
+        print(tt)
+        print(tt/len(times))
+    else:
+        for rad_date in dates:
+            display_time(rad_date)
 
 
     
