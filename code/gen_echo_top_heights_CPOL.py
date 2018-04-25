@@ -11,9 +11,10 @@ import math
 import dask.array as da
 import time
 import sys
+import os
 from scipy import interpolate, ndimage
-from distributed import Client, LocalCluster
-from dask import delayed, compute
+from distributed import Client, LocalCluster, wait
+
 
 exclude_fields = ['temperature', 'height', 'unfolded_differential_phase', 'specific_attenuation_reflectivity', 'specific_attenuation_differential_reflectivity', 'radar_echo_classification', 'radar_estimated_rain_rate', 'D0', 'NW', 'velocity', 'region_dealias_velocity', 'total_power', 'cross_correlation_ratio', 'differential_reflectivity', 'corrected_differential_reflectivity', 'differential_phase', 'corrected_differential_phase', 'corrected_specific_differential_phase', 'spectrum_width', 'signal_to_noise_ratio', 'ROI']
 
@@ -66,6 +67,7 @@ def seconds_to_midnight_to_hm(time_secs_after_midnight):
     hours = math.floor(time_secs_after_midnight/3600)
     minutes = math.floor((time_secs_after_midnight - hours*3600)/60)
     return hours, minutes
+
 # get_grid_times_cpol
 #     start_year = Start year of animation
 #     start_month = Start month of animation
@@ -122,7 +124,7 @@ def get_grid_times_cpol(start_year, start_month, start_day,
         dir_str = year_str + '/' + year_str + month_str + day_str + '/'
         format_str = (cpol_grid_data_path +
                       dir_str + 
-                      'CPOL_GRID.' +
+                      'CPOL_' +
                       year_str +
                       month_str + 
                       day_str + 
@@ -143,19 +145,18 @@ def get_grid_times_cpol(start_year, start_month, start_day,
     # Parse all of the dates and time in the interval and add them to the time list
     past_time = []
     for file_name in file_list:
-        date_str = file_name[-24:-9]
+        date_str = file_name[-28:-15]
         year_str = date_str[0:4]
         month_str = date_str[4:6]
         day_str = date_str[6:8]
         hour_str = date_str[9:11]
         minute_str = date_str[11:13]
-        second_str = date_str[13:15]
         cur_time = datetime(int(year_str),
                             int(month_str),
                             int(day_str),
                             int(hour_str),
                             int(minute_str),
-                            int(second_str))
+                            )
         time_list.append(cur_time)
     
     # Sort time list and make sure time are at least xx min apart
@@ -187,7 +188,7 @@ def get_grid_from_cpol(time):
     day_str = "%02d" % time.day
     hour_str = "%02d" % time.hour
     minute_str = "%02d" % time.minute
-    second_str = "%02d" % time.second
+    
     file_name_str = (cpol_grid_data_path + 
                      year_str +
                      '/' + 
@@ -195,14 +196,13 @@ def get_grid_from_cpol(time):
                      month_str +
                      day_str +
                      '/' +
-                     'CPOL_GRID.' +
+                     'CPOL_' +
                      year_str +
                      month_str +
-                     day_str + '.' +
+                     day_str + '_' +
                      hour_str +
                      minute_str +
-                     second_str +
-                     '.100km.nc')
+                     '_GRIDS_2500m.nc')
     print(file_name_str)
     radar = pyart.io.read_grid(file_name_str, exclude_fields=exclude_fields)
     return radar
@@ -219,7 +219,7 @@ def get_echotop_heights(cur_time):
         return []
     try:
         texture = pyart_grid.fields['velocity_texture']['data']
-        z = pyart_grid.fields['corrected_reflectivity']['data']
+        z = pyart_grid.fields['reflectivity']['data']
         grid_z = pyart_grid.point_z['data']
         grid_y = pyart_grid.point_y['data']
         grid_x = pyart_grid.point_x['data']
@@ -238,20 +238,39 @@ def get_echotop_heights(cur_time):
                                             labels=in_cloud,
                                             index=in_cloud)
     echo_top = echo_top[0,:,:]
-                    
+                
     # Exclude values < 15 km from radar
     dist_from_radar = np.sqrt(np.square(grid_x[0]) + np.square(grid_y[0]))                  
-    echo_top = np.ma.masked_where(dist_from_radar < 15000, echo_top)
-    return echo_top
+    echo_top = np.ma.masked_where(np.logical_or(echo_top == 0, dist_from_radar < 15000), echo_top)
+    Lon_cpol = pyart_grid.point_longitude['data'][0]
+    Lat_cpol = pyart_grid.point_latitude['data'][0]
+
+    ds = xarray.Dataset({'ETH': (['y', 'x'], echo_top)},
+                             coords={'lon': (['y', 'x'], Lon_cpol),
+                                     'lat': (['y', 'x'], Lat_cpol),
+                                     'time': cur_time,
+                                     'reference_time': cur_time},
+                         attrs={'units': 'm', 'long_name': ('CPOL echo top' +
+                                                            ' height')})
+    the_path = (echo_tops_path + "%04d" % cur_time.year + '/' + "%04d" % cur_time.year +
+        "%02d" % cur_time.month + "%02d" % cur_time.day + '/')
+
+    if(not os.path.isdir(the_path)):
+        os.makedirs(the_path)
+    ds.to_netcdf(path=(the_path + 
+                           'echo_tops_' +
+		           cur_time.strftime('%Y%m%d%H%M')
+                           + '.cdf'), mode='w')
+    print(str(cur_time) + ' sucessfully processed!')
 
 
 if __name__ == '__main__':
     # Input the range of dates and time wanted for the collection of images
     start_year = int(sys.argv[1])
-    start_day = int(sys.argv[2])
-    start_month = int(sys.argv[3])
+    start_day = int(sys.argv[3])
+    start_month = int(sys.argv[2])
     start_hour = 0
-    start_minute = 1
+    start_minute = 3
     start_second = 0
 
     end_year = int(sys.argv[4])
@@ -262,13 +281,13 @@ if __name__ == '__main__':
     end_second = 0
 
     # Start a cluster with x workers
-    cluster = LocalCluster(n_workers=16)
+    cluster = LocalCluster(n_workers=36)
     client = Client(cluster)
 
     data_path = '/lcrc/group/earthscience/rjackson/multidop_grids/'
     visst_data_path = '/lcrc/group/earthscience/rjackson/visst/'
-    echo_tops_path = '/lcrc/group/earthscience/rjackson/echo_tops/'
-    cpol_grid_data_path = '/lcrc/group/earthscience/rjackson/cpol_grids_100km/'        
+    echo_tops_path = '/lcrc/group/earthscience/rjackson/echo_tops/echo_tops_150km_2500m/'
+    cpol_grid_data_path = '/lcrc/group/earthscience/radar/CPOL_level_1b/GRIDDED/GRID_150km_2500m/'        
     # Get the multidop grid times
     times = get_grid_times_cpol(start_year, start_month, 
 	                        start_day, start_hour, 
@@ -282,64 +301,10 @@ if __name__ == '__main__':
     import time
     tbs = []
     num_times = len(times)
-    hours = []
-    minutes = []
-    seconds = []
-    years = []
-    days = []
-    months = []
-    num_frames = 2000
-    first_grid = get_grid_from_cpol(times[0])
-    Lon_cpol = first_grid.point_longitude['data'][0]
-    Lat_cpol = first_grid.point_latitude['data'][0]
-    first_array = get_echotop_heights(times[0])
-    get_heights = delayed(get_echotop_heights)
-
-    for cur_time in times:
-        tbs_shape = first_array.shape
-        years.append(cur_time.year*np.ones(tbs_shape[1]))
-        days.append(cur_time.day*np.ones(tbs_shape[1]))
-        months.append(cur_time.month*np.ones(tbs_shape[1]))
-        hours.append(cur_time.hour*np.ones(tbs_shape[1]))
-        minutes.append(cur_time.minute*np.ones(tbs_shape[1]))
-        seconds.append(cur_time.second*np.ones(tbs_shape[1]))
-
-    years = np.concatenate([arrays for arrays in years])
-    days = np.concatenate([arrays for arrays in days])
-    months = np.concatenate([arrays for arrays in months])
-    hours = np.concatenate([arrays for arrays in hours])
-    minutes = np.concatenate([arrays for arrays in minutes])
-    seconds = np.concatenate([arrays for arrays in seconds])
-
-    for i in range(0, len(years), num_frames):
-        t1 = time.time()
-        tbs_temp = [da.from_delayed(get_heights(cur_time), 
-	                            shape=first_array.shape, 
-	                            dtype=float) for cur_time in times[i:i+num_frames]]
-        tbs_temp = da.stack(tbs_temp, axis=0)
-        print(tbs_temp.shape)
-
-        tbs_temp = compute(*tbs_temp)
-        tbs_temp = np.stack(tbs_temp)
-
-        ds = xarray.Dataset({'cpol_T': (['time', 'y', 'x'], tbs_temp)},
-	                     coords={'lon': (['y', 'x'], Lon_cpol),
-	                             'lat': (['y', 'x'], Lat_cpol),
-	                             'time': times[i:i+num_frames],
-	                             'reference_time': times[i]},
-      	                 attrs={'units': 'K', 'long_name': ('CPOL echo top' +  
-	                                                    ' temperature')})
-        print(ds)
-        ds.to_netcdf(path=(echo_tops_path +
-	                   'echo_tops' + 
-	                   times[i].strftime('%Y%m%j%H%M') 
-	                   + '.cdf'), mode='w')
-        t2 = time.time() - t1
-        print('Total time in s: ' + str(t2))
-        print('Time per scan = ' + str(t2/num_frames))
-	
-        print(years.shape)
-   
-        print('Writing netCDF file...')
+    print('Processing ' + str(num_times) + ' grids.')
+    get_echotop_heights(times[0])
+    result = client.map(get_echotop_heights, times)
+    wait(result)
+    
 
 
