@@ -1,3 +1,5 @@
+from matplotlib import use
+use('agg')
 import pyart
 import numpy as np
 import glob
@@ -9,6 +11,7 @@ import warnings
 import pandas
 import os
 import gc
+import shutil
 
 from distributed import Client, LocalCluster
 from dask import delayed
@@ -19,7 +22,7 @@ warnings.filterwarnings("ignore")
 
 excluded_fields = ['temperature', 'specific attenuation_differential_reflectivity',
                    'D0', 'NW', 'velocity_texture', 'total_power', 
-                   'bringi_specific_differential_phase', 'giangrande_differential_phase',
+                   'bringi_specific_differential_phase', 
                    'bringi_differential_phase', 'signal_to_noise_ratio', 'spectrum_width']
 def get_rain_rate_over_spots(file, dis_latlon, 
                              profiler_latlon):
@@ -47,46 +50,48 @@ def get_rain_rate_over_spots(file, dis_latlon,
     gate_alt_prof = np.nan*np.ma.ones(17)
     Z_dis = np.nan*np.ma.ones(17)
     Z_prof = np.nan*np.ma.ones(17)
+    Zdr_ave = np.nan*np.ma.ones(17)
     try:
-        radar = pyart.io.read(file, exclude_fields=excluded_fields)
-        atten_meta = radar.fields['specific_attenuation_reflectivity']['data']
+        radar = pyart.io.read(file, exclude_fields=excluded_fields, 
+            delay_field_loading=True)
+        #atten_meta = radar.fields['specific_attenuation_reflectivity']['data']
         # Do adjusted specific attenuation retrieval
-        #atten_meta, zh_corr = pyart.correct.calculate_attenuation(radar, 0,
-        #    rhv_min=0.3, a_coef=0.012, beta=0.02, refl_field=refl_field,
-        #    ncp_field=rhv_field, rhv_field=rhv_field, phidp_field=phidp_field) 
-
+        rr = radar.fields['radar_estimated_rain_rate']
+        echo = radar.fields['radar_echo_classification']
+        kdp = radar.fields['corrected_specific_differential_phase']
+        Ar = radar.fields['specific_attenuation_reflectivity']
+        Zdr = radar.fields['corrected_differential_reflectivity']
+        Z = radar.fields['reflectivity']
+        vel = radar.fields['velocity']
+        gate_lat = radar.gate_latitude['data']
+        gate_lon = radar.gate_longitude['data']
+        gate_alt = radar.gate_altitude['data']
+        if('cross_correlation_ratio' in radar.fields.keys()):
+            rhohv = radar.fields['cross_correlation_ratio']
+        
         for i in range(radar.nsweeps):
             slice_start, slice_end = radar.get_start_end(i)
-            gate_longitude = radar.gate_longitude['data'][slice_start:slice_end,:]
-            gate_latitude = radar.gate_latitude['data'][slice_start:slice_end,:]
-            gate_altitude = radar.gate_altitude['data'][slice_start:slice_end,:]
+            gate_longitude = gate_lon[slice_start:slice_end,:]
+            gate_latitude = gate_lat[slice_start:slice_end,:]
+            gate_altitude = gate_alt[slice_start:slice_end,:]
             dist = np.sqrt((gate_latitude-dis_latlon[0])**2 + 
                            (gate_longitude-dis_latlon[1])**2)
             disdrometer_index = np.where(dist == np.min(dist))
-        
-            dist = np.sqrt((gate_latitude-profiler_latlon[0])**2 + 
-                           (gate_longitude-profiler_latlon[1])**2)
+            dist = np.sqrt((gate_latitude-profiler_latlon[0])**2 +
+                           (gate_longitude-profiler_latlon[1])**2)      
             profiler_index = np.where(dist == np.min(dist))
-            rain_dis[i] = radar.fields['radar_estimated_rain_rate']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            rain_prof[i] = radar.fields['radar_estimated_rain_rate']['data'][ 
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
+            
+            rain_dis[i] = rr['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            rain_prof[i] = rr['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
 
-            echo_prof[i] = radar.fields['radar_echo_classification']['data'][
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
-            kdp_prof[i] = radar.fields['giangrande_specific_differential_phase']['data'][
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
-            Ar_prof[i] = atten_meta[
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
-            Zdr_prof[i] = radar.fields['corrected_differential_reflectivity']['data'][
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
-            Z_prof[i] = radar.fields['reflectivity']['data'][
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
-            vel_prof[i] = radar.fields['velocity']['data'][
-                slice_start+profiler_index[0][0], profiler_index[1][0]]
+            echo_prof[i] = echo['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
+            kdp_prof[i] = kdp['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
+            Ar_prof[i] = Ar['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
+            Zdr_prof[i] = Zdr['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
+            Z_prof[i] = Z['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
+            vel_prof[i] = vel['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
             if('cross_correlation_ratio' in radar.fields.keys()):
-                rhohv_prof[i] = radar.fields['cross_correlation_ratio']['data'][
-                    slice_start+profiler_index[0][0], profiler_index[1][0]]
+                rhohv_prof[i] = rhohv['data'][slice_start+profiler_index[0][0], profiler_index[1][0]]
 
             gate_lat_prof[i] = gate_latitude[profiler_index[0][0], 
                 profiler_index[1][0]]
@@ -95,21 +100,26 @@ def get_rain_rate_over_spots(file, dis_latlon,
             gate_alt_prof[i] = gate_altitude[profiler_index[0][0],
                 profiler_index[1][0]]
         
-            echo_dis[i] = radar.fields['radar_echo_classification']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            kdp_dis[i] = radar.fields['giangrande_specific_differential_phase']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            Ar_dis[i] = atten_meta[
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            Zdr_dis[i] = radar.fields['corrected_differential_reflectivity']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            Z_dis[i] = radar.fields['reflectivity']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
-            vel_dis[i] = radar.fields['velocity']['data'][
-                slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            echo_dis[i] = echo['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            kdp_dis[i] = kdp['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            Ar_dis[i] = Ar['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            Zdr_dis[i] = Zdr['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+             
+            Zdr_vals = np.ma.array([Zdr['data'][slice_start+disdrometer_index[0][0], 
+                                                disdrometer_index[1][0]],
+                                    Zdr['data'][slice_start+disdrometer_index[0][0]+1,
+                                                disdrometer_index[1][0]],
+                                    Zdr['data'][slice_start+disdrometer_index[0][0]-1,
+                                                disdrometer_index[1][0]],
+                                    Zdr['data'][slice_start+disdrometer_index[0][0],
+                                                disdrometer_index[1][0]+1],
+                                    Zdr['data'][slice_start+disdrometer_index[0][0],
+                                                disdrometer_index[1][0]-1]])
+            Zdr_ave[i] = Zdr_vals.mean()
+            Z_dis[i] = Z['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+            vel_dis[i] = vel['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
             if('cross_correlation_ratio' in radar.fields.keys()):
-                rhohv_dis[i] = radar.fields['cross_correlation_ratio']['data'][
-                    slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
+                rhohv_dis[i] = rhohv['data'][slice_start+disdrometer_index[0][0], disdrometer_index[1][0]]
  
             gate_lat_dis[i] = gate_latitude[disdrometer_index[0][0],         
                 disdrometer_index[1][0]]
@@ -120,16 +130,19 @@ def get_rain_rate_over_spots(file, dis_latlon,
         
         
         print(file + ' successful!')
-        del radar
-        #del radar, gate_longitude, gate_latitude, gate_altitude, atten_meta
-    except (IOError, ValueError) as e:
+        
+        del radar, gate_longitude, gate_latitude, gate_altitude, Z, Ar, kdp, echo, vel, Zdr, rr
+        del gate_lon, gate_lat, gate_alt
+        gc.collect()
+    except (IOError, ValueError, KeyError, TypeError) as e:
         print(file + 'is corrupt...skipping!')
         
                        
     return np.stack([rain_dis, echo_dis, kdp_dis, Ar_dis, Zdr_dis, Z_dis,
                      vel_dis, rhohv_dis, gate_lat_dis, gate_lon_dis, gate_alt_dis, 
                      rain_prof, echo_prof, kdp_prof, Ar_prof, Zdr_prof, Z_prof,
-                     vel_prof, rhohv_prof, gate_lat_prof, gate_lon_prof, gate_alt_prof])
+                     vel_prof, rhohv_prof, gate_lat_prof, gate_lon_prof, gate_alt_prof,
+                     Zdr_ave])
 
 
 def parse_time(file):
@@ -238,7 +251,10 @@ if __name__ =='__main__':
     profiler_lat = -12.44
     profiler_lon = 130.96
     #client = Client(scheduler_file=scheduler_file)
-    cluster = LocalCluster(n_workers=24, processes=True)
+    cluster_path = ('cluster_' + year + month)
+    if not os.path.isdir(cluster_path):
+        os.mkdir(cluster_path)
+    cluster = LocalCluster(n_workers=8, local_dir=cluster_path)
     client = Client(cluster)
     file_list = glob.glob(file_path + '/**/*.nc', recursive=True)
     dis_ind = (dis_lat,dis_lon)
@@ -278,17 +294,18 @@ if __name__ =='__main__':
     dis_values = []
     #for i in range(0,len(file_list), 500):
     file_bag = db.from_sequence(file_list) 
-    the_list = file_bag.map(lambda x: get_rain_rate_over_spots(
-                           x, dis_ind, prof_ind)).compute()
-    dis_values.append(np.stack(the_list, axis=0))
+    #the_list = file_bag.map(lambda x: get_rain_rate_over_spots(
+    #                       x, dis_ind, prof_ind)).compute()
+    #the_list = [get_rain_rate_over_spots(x, dis_ind, prof_ind) for x in file_list]
+    #dis_values.append(np.stack(the_list, axis=0))
     #    gc.collect()
-    #the_futures = client.map(lambda x: get_rain_rate_over_spots(
-    #                              x, dis_ind, prof_ind), file_list)
-    #dis_values = client.gather(the_futures)
+    the_futures = client.map(lambda x: get_rain_rate_over_spots(
+                                  x, dis_ind, prof_ind), file_list)
+    dis_values = client.gather(the_futures)
   
     for x in dis_values:
         print(x.shape)
-    dis_values = np.concatenate(dis_values, axis=0)
+    dis_values = np.stack(dis_values, axis=0)
 
     print(dis_values.shape)
     dis_rain = dis_values[:,0,:]
@@ -314,6 +331,7 @@ if __name__ =='__main__':
     gate_lat_prof = dis_values[:,19,:]
     gate_lon_prof = dis_values[:,20,:]
     gate_alt_prof = dis_values[:,21,:]
+    Zdr_ave = dis_values[:,22,:]
     print(len(time_list))
     print(dis_rain.shape)
     
@@ -343,7 +361,8 @@ if __name__ =='__main__':
                          'vel_prof': (['time', 'sweep'], vel_prof),
                          'gate_lat_prof': (['time', 'sweep'], gate_lat_prof),
                          'gate_lon_prof': (['time', 'sweep'], gate_lon_prof),
-                         'gate_alt_prof': (['time', 'sweep'], gate_alt_prof) 
+                         'gate_alt_prof': (['time', 'sweep'], gate_alt_prof),
+                         'Zdr_ave': (['time', 'sweep'], Zdr_ave) 
                          },
                          coords={'time': time_list, 'sweep': np.arange(0,17)},
                          attrs={'units': 'mm hr-1', 'long_name':
@@ -351,4 +370,5 @@ if __name__ =='__main__':
                                  'et al. 2016.')})
     print(ds)
     ds.to_netcdf(path=(output_file_path + 'rainfall_rate_timeseries' + year + month + '.cdf'), mode='w')
+    shutil.rmtree(cluster_path)
     client.shutdown()
